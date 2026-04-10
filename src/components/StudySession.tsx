@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import { hydrateFromIDB, markCardDirtyLocal } from "@/features/sync/syncThunks";
@@ -11,10 +11,68 @@ import {
   type ReviewGrade,
 } from "@/lib/cards/scheduleReview";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
+import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
+import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
 
 type Props = {
   deckPath: string;
 };
+
+function humanizeKindLabel(raw: string): string {
+  const s = raw.trim();
+  if (!s) return "—";
+  return s
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function FlashcardVariantBadge({
+  noteType,
+  storedCardVariant,
+  effectiveCardVariant,
+}: {
+  noteType?: string;
+  storedCardVariant?: string;
+  effectiveCardVariant: string;
+}) {
+  const ntRaw = noteType?.trim() ?? "";
+  const stored = storedCardVariant?.trim() ?? "";
+  const eff = effectiveCardVariant.trim();
+  const ntLower = ntRaw.toLowerCase();
+  const typedNote = ntLower === "vocab" || ntLower === "language" || ntLower === "knowledge";
+  const title = [
+    `note_type: ${ntRaw || "—"}`,
+    `stored card_variant: ${stored || "(not set)"}`,
+    `layout (effective): ${eff || "—"}`,
+  ].join("\n");
+
+  return (
+    <div
+      className="inline-flex max-w-[min(100%,16rem)] flex-col items-end gap-1 rounded-md border border-zinc-700/90 bg-zinc-950/70 px-2.5 py-2 text-right"
+      title={title}
+    >
+      <div className="w-full border-b border-zinc-800/80 pb-1">
+        <p className="text-[9px] font-medium uppercase tracking-wider text-zinc-600">Note type</p>
+        <p className="mt-0.5 text-[11px] font-semibold leading-tight text-zinc-400">
+          {humanizeKindLabel(ntRaw)}
+        </p>
+      </div>
+      <div>
+        <p className="text-[9px] font-medium uppercase tracking-wider text-zinc-600">Card variant</p>
+        <p className="mt-0.5 text-[11px] font-semibold leading-tight text-zinc-300">
+          {humanizeKindLabel(eff)}
+        </p>
+        {!stored && eff && typedNote ? (
+          <p className="mt-0.5 max-w-[14rem] text-[9px] leading-snug text-zinc-600">
+            Not on document — default layout
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 const CUSTOM_DUE_TIERS = [
   { min: 0, max: 10, label: "0–10 days" },
@@ -187,6 +245,13 @@ export function StudySession({ deckPath }: Props) {
   const currentId = queue.length > 0 ? queue[0] : undefined;
   const card = currentId ? byId[currentId] : undefined;
 
+  const faces = useMemo(() => {
+    if (!card) {
+      return { front: null as ReactNode, back: null as ReactNode };
+    }
+    return resolveFlashcardFaces(card);
+  }, [card]);
+
   const showAnswer = useCallback(() => setRevealed(true), []);
 
   const submitGrade = useCallback(
@@ -328,8 +393,6 @@ export function StudySession({ deckPath }: Props) {
   const position = answeredInSession + 1;
   const totalThisSession = answeredInSession + queue.length;
   const remaining = queue.length - 1;
-  const front = card.front?.trim() || "";
-  const back = card.back?.trim() || "";
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -354,9 +417,7 @@ export function StudySession({ deckPath }: Props) {
         aria-live="polite"
       >
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Question</p>
-        <div className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100 whitespace-pre-wrap">
-          {front ? front : <span className="text-zinc-600 italic">No question text</span>}
-        </div>
+        <div className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">{faces.front}</div>
 
         {!revealed ? (
           <div className="mt-8">
@@ -373,39 +434,48 @@ export function StudySession({ deckPath }: Props) {
           <>
             <div className="my-8 border-t border-zinc-800" />
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Answer</p>
-            <div className="mt-3 min-h-[4rem] text-lg leading-relaxed text-zinc-100 whitespace-pre-wrap">
-              {back ? back : <span className="text-zinc-600 italic">No answer text</span>}
-            </div>
-            <div className="mt-8">
-              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {GRADE_ROWS.map(({ grade, label, className }) => (
-                  <button
-                    key={grade}
-                    type="button"
-                    disabled={isGrading}
-                    onClick={() => void submitGrade(grade)}
-                    className={`flex flex-col items-stretch rounded-xl border px-3 py-3 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${className}`}
-                  >
-                    <span>{label}</span>
-                    <span className="mt-1 text-xs font-normal tabular-nums opacity-80">
-                      {hintNowMs ? intervalHintForGrade(card, grade, hintNowMs) : "—"}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-xs text-zinc-600">Keys 1–4 = Again / Hard / Good / Easy · Space or Enter still shows the answer</p>
-              {currentId ? (
-                <CustomDueControl
-                  key={currentId}
-                  disabled={isGrading}
-                  nowMs={hintNowMs || Date.now()}
-                  onApply={submitCustomDue}
-                />
-              ) : null}
-            </div>
+            <div className="mt-3 min-h-[4rem] text-lg leading-relaxed text-zinc-100">{faces.back}</div>
           </>
         )}
+
+        <div className="mt-6 flex justify-end">
+          <FlashcardVariantBadge
+            noteType={card.note_type}
+            storedCardVariant={card.card_variant}
+            effectiveCardVariant={getEffectiveCardVariant(card)}
+          />
+        </div>
+
+        {revealed ? (
+          <div className="mt-8">
+            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {GRADE_ROWS.map(({ grade, label, className }) => (
+                <button
+                  key={grade}
+                  type="button"
+                  disabled={isGrading}
+                  onClick={() => void submitGrade(grade)}
+                  className={`flex flex-col items-stretch rounded-xl border px-3 py-3 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${className}`}
+                >
+                  <span>{label}</span>
+                  <span className="mt-1 text-xs font-normal tabular-nums opacity-80">
+                    {hintNowMs ? intervalHintForGrade(card, grade, hintNowMs) : "—"}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-zinc-600">Keys 1–4 = Again / Hard / Good / Easy · Space or Enter still shows the answer</p>
+            {currentId ? (
+              <CustomDueControl
+                key={currentId}
+                disabled={isGrading}
+                nowMs={hintNowMs || Date.now()}
+                onApply={submitCustomDue}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </article>
     </div>
   );

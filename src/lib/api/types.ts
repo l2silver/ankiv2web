@@ -18,6 +18,7 @@ export type SyncPatchCard = {
   back?: string;
   context?: string;
   note_type?: string;
+  card_variant?: string;
   /** Replaces the full list when present (any `type` string; extra keys allowed). */
   more_questions?: MoreQuestion[];
 };

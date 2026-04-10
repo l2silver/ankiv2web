@@ -69,6 +69,7 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   const back = optString(raw.back);
   const context = optString(raw.context);
   const note_type = optString(raw.note_type);
+  const card_variant = optString(raw.card_variant);
   const due_at = optString(raw.due_at);
   const last_reviewed_at = optString(raw.last_reviewed_at);
   const created_at = optString(raw.created_at);
@@ -78,6 +79,7 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   if (back !== undefined) card.back = back;
   if (context !== undefined) card.context = context;
   if (note_type !== undefined) card.note_type = note_type;
+  if (card_variant !== undefined) card.card_variant = card_variant;
   if (due_at !== undefined) card.due_at = due_at;
   if (last_reviewed_at !== undefined) card.last_reviewed_at = last_reviewed_at;
   if (created_at !== undefined) card.created_at = created_at;
