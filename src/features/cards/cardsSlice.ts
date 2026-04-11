@@ -26,7 +26,7 @@ export type CardEntity = {
   context?: string;
   /** Deck generator / model label (e.g. language, vocab). */
   note_type?: string;
-  /** Which card template/variant this is within the note type (snake_case on the wire). */
+  /** Per-note template within `note_type` (wire string; often snake_case, e.g. language `front->back+context`). */
   card_variant?: string;
   /** Extra study prompts (any `type`); crossword UI uses rows where `type === "Crossword"`. */
   more_questions?: MoreQuestion[];

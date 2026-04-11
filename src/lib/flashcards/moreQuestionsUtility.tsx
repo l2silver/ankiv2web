@@ -3,12 +3,21 @@ import type { ReactNode } from "react";
 import type { CardEntity, MoreQuestion } from "@/features/cards/cardsSlice";
 
 import { textOrPlaceholder } from "@/lib/flashcards/formatting";
+import { eligibleFlashcardMoreQuestions } from "@/lib/flashcards/moreQuestionEligible";
+import { pickSeededIndex } from "@/lib/flashcards/pickSeededIndex";
+
+/** One stable non-crossword follow-up row for this card (same pick across flips). */
+export function pickedFlashcardMoreQuestion(card: CardEntity): MoreQuestion | undefined {
+  const eligible = eligibleFlashcardMoreQuestions(card);
+  if (eligible.length === 0) return undefined;
+  return eligible[pickSeededIndex(card.id, eligible.length)];
+}
 
 /**
- * Back when the **front** already shows the follow-up question: answer, optional context, then original card Q/A.
- * (Used for language `grammar` / `more_questions` and vocab `more_questions`.)
+ * Back when the **front** is only the follow-up question: show answer + optional context,
+ * then the note’s main Q/A under “Original card”.
  */
-export function moreQuestionAnswerContextAndOriginalBack(card: CardEntity, picked: MoreQuestion): ReactNode {
+export function answerContextThenOriginalCardBack(card: CardEntity, picked: MoreQuestion): ReactNode {
   const mainQ = card.front?.trim() ?? "";
   const mainA = card.back?.trim() ?? "";
   const mqCtx =
@@ -43,9 +52,10 @@ export function moreQuestionAnswerContextAndOriginalBack(card: CardEntity, picke
 }
 
 /**
- * Back when follow-ups exist: picked more_question (question, answer, context), then original card Q/A.
+ * Back when the **front** is the main card: show the full follow-up (Q, A, optional context),
+ * then the note’s main Q/A under “Original card”.
  */
-export function vocabMoreQuestionAndOriginalBack(card: CardEntity, picked: MoreQuestion): ReactNode {
+export function followUpQaBlockThenOriginalCardBack(card: CardEntity, picked: MoreQuestion): ReactNode {
   const mainQ = card.front?.trim() ?? "";
   const mainA = card.back?.trim() ?? "";
   const mqCtx =

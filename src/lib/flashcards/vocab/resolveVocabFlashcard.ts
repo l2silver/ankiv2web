@@ -1,58 +1,43 @@
 import type { CardEntity } from "@/features/cards/cardsSlice";
 
 import type { FlashcardFaces } from "../types";
-import { eligibleFlashcardMoreQuestions } from "../moreQuestionEligible";
-import { pickSeededIndex } from "../pickSeededIndex";
-import { textOrPlaceholder } from "@/lib/flashcards/formatting";
-import { vocabDefinitionFacesNoMq } from "./definition";
+import { resolveVocabBackToFrontPlusContextFlashcard } from "./back_to_front_plus_context";
+import { resolveVocabContextToFrontPlusBackFlashcard } from "./context_to_front_plus_back";
+import { resolveVocabFrontToBackPlusContextFlashcard } from "./front_to_back_plus_context";
+import { resolveVocabMoreQuestionsFlashcard } from "./more_questions";
 import {
-  moreQuestionAnswerContextAndOriginalBack,
-  vocabMoreQuestionAndOriginalBack,
-} from "./moreQuestionBack";
-import { vocabReverseFacesNoMq } from "./reverse";
-import { vocabUsageClozeFacesNoMq } from "./usageCloze";
+  canonicalVocabCardVariant,
+  VOCAB_VARIANT_BACK_FRONT_CTX,
+  VOCAB_VARIANT_CONTEXT_FRONT_BACK_CTX,
+  VOCAB_VARIANT_FRONT_BACK_CTX,
+  VOCAB_VARIANT_MORE_QUESTIONS,
+} from "./vocabVariantNames";
 
-/** Matches `NOTE_TYPE_CARD_VARIANTS.vocab` (`words` + legacy `usage_cloze` for stored rows). */
-const VOCAB_VARIANTS = new Set(["definition", "reverse", "words", "usage_cloze", "more_questions"]);
+const VOCAB_VARIANTS = new Set<string>([
+  VOCAB_VARIANT_FRONT_BACK_CTX,
+  VOCAB_VARIANT_BACK_FRONT_CTX,
+  VOCAB_VARIANT_CONTEXT_FRONT_BACK_CTX,
+  VOCAB_VARIANT_MORE_QUESTIONS,
+  "definition",
+  "reverse",
+  "words",
+  "usage_cloze",
+]);
 
 export function resolveVocabFlashcardFaces(card: CardEntity): FlashcardFaces {
-  const variant = card.card_variant?.trim() ?? "definition";
-  const effectiveVariant = VOCAB_VARIANTS.has(variant) ? variant : "definition";
+  const raw = card.card_variant?.trim() ?? VOCAB_VARIANT_FRONT_BACK_CTX;
+  const v = VOCAB_VARIANTS.has(raw) ? raw : VOCAB_VARIANT_FRONT_BACK_CTX;
+  const kind = canonicalVocabCardVariant(v);
 
-  const eligible = eligibleFlashcardMoreQuestions(card);
-  const picked = eligible.length > 0 ? eligible[pickSeededIndex(card.id, eligible.length)] : undefined;
-
-  if (effectiveVariant === "more_questions") {
-    if (picked) {
-      return {
-        front: textOrPlaceholder(picked.question.trim(), "No follow-up question"),
-        back: moreQuestionAnswerContextAndOriginalBack(card, picked),
-      };
-    }
-    return vocabDefinitionFacesNoMq(card);
-  }
-
-  let main: FlashcardFaces;
-  switch (effectiveVariant) {
-    case "reverse":
-      main = vocabReverseFacesNoMq(card);
-      break;
-    case "words":
-    case "usage_cloze":
-      main = vocabUsageClozeFacesNoMq(card);
-      break;
-    case "definition":
+  switch (kind) {
+    case VOCAB_VARIANT_BACK_FRONT_CTX:
+      return resolveVocabBackToFrontPlusContextFlashcard(card);
+    case VOCAB_VARIANT_CONTEXT_FRONT_BACK_CTX:
+      return resolveVocabContextToFrontPlusBackFlashcard(card);
+    case VOCAB_VARIANT_MORE_QUESTIONS:
+      return resolveVocabMoreQuestionsFlashcard(card);
+    case VOCAB_VARIANT_FRONT_BACK_CTX:
     default:
-      main = vocabDefinitionFacesNoMq(card);
-      break;
+      return resolveVocabFrontToBackPlusContextFlashcard(card);
   }
-
-  if (!picked) {
-    return main;
-  }
-
-  return {
-    front: main.front,
-    back: vocabMoreQuestionAndOriginalBack(card, picked),
-  };
 }

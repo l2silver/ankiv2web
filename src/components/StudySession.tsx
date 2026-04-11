@@ -18,14 +18,30 @@ type Props = {
   deckPath: string;
 };
 
-function humanizeKindLabel(raw: string): string {
-  const s = raw.trim();
-  if (!s) return "—";
-  return s
+function titleCaseWords(segment: string): string {
+  return segment
     .split(/[_\s]+/)
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(" ");
+}
+
+/** Note-type / variant labels in the study badge (handles language `front->back+context` style names). */
+function humanizeKindLabel(raw: string): string {
+  const s = raw.trim();
+  if (!s) return "—";
+  if (s.includes("->")) {
+    return s
+      .split("->")
+      .map((part) =>
+        part
+          .split("+")
+          .map((chunk) => titleCaseWords(chunk))
+          .join(" + "),
+      )
+      .join(" → ");
+  }
+  return titleCaseWords(s);
 }
 
 function FlashcardVariantBadge({

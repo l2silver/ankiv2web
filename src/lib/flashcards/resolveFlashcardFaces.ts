@@ -16,6 +16,7 @@ function defaultFaces(card: CardEntity): FlashcardFaces {
   };
 }
 
+/** Routes by `note_type` / `card_variant`. Language / vocab / knowledge use arrow-style `card_variant` strings; see each folder’s `*VariantNames.ts` and `front_to_back_plus_context.tsx` (etc.). */
 export function resolveFlashcardFaces(card: CardEntity): FlashcardFaces {
   const noteType = card.note_type?.trim().toLowerCase() ?? "";
   if (noteType === "vocab") {
