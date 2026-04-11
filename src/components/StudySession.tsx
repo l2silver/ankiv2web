@@ -218,7 +218,7 @@ export function StudySession({ deckPath }: Props) {
 
   const queue = useMemo(() => {
     const nowMs = Date.now();
-    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs);
+    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard");
   }, [byId, allIds, deckPath]);
 
   /**

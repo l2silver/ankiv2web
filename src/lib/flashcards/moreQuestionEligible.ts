@@ -1,5 +1,8 @@
 import type { CardEntity, MoreQuestion } from "@/features/cards/cardsSlice";
 
+import { crosswordQuestionsFromCard } from "@/lib/cards/crosswordFromCard";
+import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
+
 /** Flashcard follow-ups only (not crossword grid rows). */
 export function eligibleFlashcardMoreQuestions(card: CardEntity): MoreQuestion[] {
   const mq = card.more_questions;
@@ -10,4 +13,27 @@ export function eligibleFlashcardMoreQuestions(card: CardEntity): MoreQuestion[]
     const a = row.answer?.trim() ?? "";
     return q.length > 0 && a.length > 0;
   });
+}
+
+/**
+ * `more_questions` layout with nothing to drill (no non-crossword follow-ups with Q+A).
+ * Such a row should not appear in the flashcard queue (it would otherwise fall back to the base layout).
+ */
+export function isVacantMoreQuestionsFlashcardVariant(card: CardEntity): boolean {
+  if (getEffectiveCardVariant(card) !== "more_questions") return false;
+  return eligibleFlashcardMoreQuestions(card).length === 0;
+}
+
+/** Due in flashcard mode: omit vacant `more_questions` variant cards. */
+export function countsInFlashcardStudyQueue(card: CardEntity): boolean {
+  return !isVacantMoreQuestionsFlashcardVariant(card);
+}
+
+/**
+ * Deck list totals: omit cards that only exist as a broken `more_questions` flashcard with no clues
+ * and no crossword content; crossword-only `more_questions` rows still count.
+ */
+export function countsInDeckTreeAggregates(card: CardEntity): boolean {
+  if (!isVacantMoreQuestionsFlashcardVariant(card)) return true;
+  return crosswordQuestionsFromCard(card).length > 0;
 }

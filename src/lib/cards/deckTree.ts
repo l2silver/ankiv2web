@@ -1,6 +1,10 @@
 import type { CardEntity } from "@/features/cards/cardsSlice";
 
 import { isCardDueNow } from "@/lib/cards/due";
+import {
+  countsInDeckTreeAggregates,
+  countsInFlashcardStudyQueue,
+} from "@/lib/flashcards/moreQuestionEligible";
 
 /** Same convention as Anki-style nested decks (`Parent::Child::Leaf`). */
 export const NESTED_DECK_SEPARATOR = "::";
@@ -54,6 +58,7 @@ export function aggregateDeckPaths(
   for (const id of allIds) {
     const c = byId[id];
     if (!c) continue;
+    if (!countsInDeckTreeAggregates(c)) continue;
     const leaf = deckKeyFromCard(c);
     const cardDue = isCardDueNow(c, nowMs);
     for (const prefix of deckPathPrefixes(leaf)) {
@@ -70,7 +75,7 @@ export function countDueCards(byId: Record<string, CardEntity>, allIds: string[]
   let n = 0;
   for (const id of allIds) {
     const c = byId[id];
-    if (c && isCardDueNow(c, nowMs)) n++;
+    if (c && countsInDeckTreeAggregates(c) && isCardDueNow(c, nowMs)) n++;
   }
   return n;
 }
@@ -112,16 +117,21 @@ export function cardMatchesDeckPath(card: CardEntity, deckPath: string): boolean
   return leaf.startsWith(deckPath + NESTED_DECK_SEPARATOR);
 }
 
+export type DueCardIdsMode = "all" | "flashcard";
+
 /** Due cards in this deck subtree, ordered by `due_at` then id (stable). */
 export function dueCardIdsForDeck(
   byId: Record<string, CardEntity>,
   allIds: string[],
   deckPath: string,
   nowMs: number,
+  mode: DueCardIdsMode = "all",
 ): string[] {
   const ids = allIds.filter((id) => {
     const c = byId[id];
-    return c && cardMatchesDeckPath(c, deckPath) && isCardDueNow(c, nowMs);
+    if (!c || !cardMatchesDeckPath(c, deckPath) || !isCardDueNow(c, nowMs)) return false;
+    if (mode === "flashcard" && !countsInFlashcardStudyQueue(c)) return false;
+    return true;
   });
   ids.sort((a, b) => {
     const ta = Date.parse(byId[a]?.due_at ?? "") || 0;
