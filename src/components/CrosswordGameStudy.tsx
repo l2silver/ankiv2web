@@ -12,6 +12,14 @@ import {
   normalizeCrosswordAnswer,
   toSlotString,
 } from "@/lib/crossword/normalizeAnswer";
+import {
+  buildCrosswordDraft,
+  clearCrosswordDraft,
+  loadCrosswordDraft,
+  puzzleFingerprint,
+  saveCrosswordDraft,
+  wordRestoreKey,
+} from "@/lib/crossword/crosswordDraftStorage";
 import { CROSSWORD_MAX, type CrosswordView } from "@/lib/crossword/types";
 import { cardMatchesDeckPath, dueCardIdsForDeck } from "@/lib/cards/deckTree";
 import { isCardDueNow } from "@/lib/cards/due";
@@ -295,18 +303,53 @@ export function CrosswordGameStudy({ deckPath }: Props) {
   const [selectedWordId, setSelectedWordId] = useState<string | null>(null);
   const [isGrading, setIsGrading] = useState(false);
   const [gradedWordIds, setGradedWordIds] = useState(() => new Set<string>());
+  /** Set when user tries to grade a full slot that does not match the answer; cleared when they edit that word. */
+  const [clueGradeErrorWordId, setClueGradeErrorWordId] = useState<string | null>(null);
+
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistSnapshotRef = useRef<{
+    deckPath: string;
+    puzzle: NonNullable<typeof puzzle>;
+    inputByWord: Record<string, string>;
+    view: CrosswordView;
+    blindMode: boolean;
+    selectedWordId: string | null;
+    gradedWordIds: Set<string>;
+  } | null>(null);
 
   useEffect(() => {
-    setGradedWordIds(new Set());
-    setBlindMode(true);
-  }, [puzzle]);
+    if (!puzzle) return;
+    setClueGradeErrorWordId(null);
+    const fp = puzzleFingerprint(puzzle.words);
+    const draft = loadCrosswordDraft(deckPath);
+    const matching = Boolean(draft && draft.v === 1 && draft.fingerprint === fp);
 
-  useEffect(() => {
+    if (!matching) {
+      setGradedWordIds(new Set());
+      setBlindMode(true);
+      setView("across");
+      setSelectedWordId(null);
+    } else {
+      const d = draft!;
+      setBlindMode(d.blindMode);
+      setView(d.view);
+      setGradedWordIds(
+        new Set(puzzle.words.filter((w) => d.gradedKeys.includes(wordRestoreKey(w))).map((w) => w.id)),
+      );
+      const selId = d.selectedKey
+        ? (puzzle.words.find((w) => wordRestoreKey(w) === d.selectedKey)?.id ?? null)
+        : null;
+      setSelectedWordId(selId);
+    }
+
     setInputByWord((prev) => {
-      if (!puzzle) return prev;
-      const next = { ...prev };
+      const next: Record<string, string> = { ...prev };
       for (const w of puzzle.words) {
-        if (next[w.id] === undefined) {
+        const k = wordRestoreKey(w);
+        const fromDraft = matching ? draft!.slots[k] : undefined;
+        if (fromDraft !== undefined) {
+          next[w.id] = toSlotString(fromDraft, w.answer.length);
+        } else if (next[w.id] === undefined) {
           next[w.id] = ".".repeat(w.answer.length);
         } else {
           next[w.id] = toSlotString(next[w.id], w.answer.length);
@@ -314,7 +357,78 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       }
       return next;
     });
-  }, [puzzle]);
+  }, [puzzle, deckPath]);
+
+  const allWordsFilled = useMemo(() => {
+    if (!puzzle || puzzle.words.length === 0) return false;
+    return puzzle.words.every((w) => isCrosswordSlotComplete(inputByWord[w.id] ?? "", w.answer.length));
+  }, [puzzle, inputByWord]);
+
+  if (puzzle && !allWordsFilled) {
+    persistSnapshotRef.current = {
+      deckPath,
+      puzzle,
+      inputByWord,
+      view,
+      blindMode,
+      selectedWordId,
+      gradedWordIds,
+    };
+  } else {
+    persistSnapshotRef.current = null;
+  }
+
+  useEffect(() => {
+    if (allWordsFilled) clearCrosswordDraft(deckPath);
+  }, [allWordsFilled, deckPath]);
+
+  useEffect(() => {
+    if (!puzzle || allWordsFilled) {
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+      return;
+    }
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      draftSaveTimerRef.current = null;
+      saveCrosswordDraft(
+        deckPath,
+        buildCrosswordDraft({
+          puzzle,
+          inputByWord,
+          view,
+          blindMode,
+          selectedWordId,
+          gradedWordIds,
+        }),
+      );
+    }, 280);
+    return () => {
+      if (draftSaveTimerRef.current) {
+        clearTimeout(draftSaveTimerRef.current);
+        draftSaveTimerRef.current = null;
+      }
+    };
+  }, [puzzle, deckPath, inputByWord, view, blindMode, selectedWordId, gradedWordIds, allWordsFilled]);
+
+  useEffect(() => {
+    const flush = () => {
+      const snap = persistSnapshotRef.current;
+      if (!snap) return;
+      saveCrosswordDraft(snap.deckPath, buildCrosswordDraft(snap));
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     if (!puzzle) return;
@@ -360,12 +474,20 @@ export function CrosswordGameStudy({ deckPath }: Props) {
 
   const onChangeSelectedAnswer = useCallback(
     (value: string) => {
+      setClueGradeErrorWordId((errId) => (errId != null && errId === selectedWordId ? null : errId));
       if (!selectedWordId || !selectedWord) return;
       const max = selectedWord.answer.length;
       setInputByWord((p) => ({ ...p, [selectedWordId]: toSlotString(value, max) }));
     },
     [selectedWord, selectedWordId],
   );
+
+  const onRevealSelectedAnswer = useCallback(() => {
+    if (!selectedWordId || !selectedWord) return;
+    setClueGradeErrorWordId((errId) => (errId === selectedWordId ? null : errId));
+    const len = selectedWord.answer.length;
+    setInputByWord((p) => ({ ...p, [selectedWordId]: toSlotString(selectedWord.answer, len) }));
+  }, [selectedWord, selectedWordId]);
 
   const cardForSelectedWord = useMemo(() => {
     if (!selectedWordId) return undefined;
@@ -385,9 +507,17 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       if (!selectedWordId || !selectedWordFullyFilled || gradingLockRef.current) return;
       const cid = cardIdFromPlacedWordId(selectedWordId);
       const card = cid ? byId[cid] : undefined;
-      if (!card) return;
+      if (!card || !selectedWord) return;
+
+      const slot = toSlotString(inputByWord[selectedWordId] ?? "", selectedWord.answer.length);
+      if (slot !== selectedWord.answer) {
+        setClueGradeErrorWordId(selectedWordId);
+        return;
+      }
+
       gradingLockRef.current = true;
       setIsGrading(true);
+      setClueGradeErrorWordId(null);
       const nowMs = Date.now();
       const fields = scheduleAfterReview(card, grade, nowMs);
       try {
@@ -418,13 +548,8 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         setIsGrading(false);
       }
     },
-    [byId, dispatch, puzzle, selectedWordFullyFilled, selectedWordId, view],
+    [byId, dispatch, inputByWord, puzzle, selectedWord, selectedWordFullyFilled, selectedWordId, view],
   );
-
-  const allWordsFilled = useMemo(() => {
-    if (!puzzle || puzzle.words.length === 0) return false;
-    return puzzle.words.every((w) => isCrosswordSlotComplete(inputByWord[w.id] ?? "", w.answer.length));
-  }, [puzzle, inputByWord]);
 
   if (sourceCardIds.length === 0) {
     return (
@@ -526,7 +651,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
   const answerLen = selectedWord?.answer.length ?? 0;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-3xl min-w-0 px-3 sm:px-4">
       <p className="text-sm text-zinc-500">
         <Link href="/" className="text-sky-400 hover:text-sky-300">
           ← Decks
@@ -615,7 +740,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
               ? " Blind mode: only letters you type in the active direction appear in that view."
               : " Rose letters = provisional crossing hints from the perpendicular direction."}
           </p>
-          <div className="mt-4 overflow-x-auto">
+          <div className="mt-4 w-full min-w-0 max-w-full">
             <CrosswordBoard
               puzzle={puzzle}
               view={view}
@@ -634,7 +759,24 @@ export function CrosswordGameStudy({ deckPath }: Props) {
 
         <section className="min-w-0 flex-1">
           {selectedWord ? (
-            <p className="text-sm text-zinc-300">{selectedWord.question}</p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+              <p
+                className={`min-w-0 flex-1 text-sm leading-snug ${
+                  clueGradeErrorWordId === selectedWord.id
+                    ? "font-medium text-rose-400"
+                    : "text-zinc-300"
+                }`}
+              >
+                {selectedWord.question}
+              </p>
+              <button
+                type="button"
+                onClick={onRevealSelectedAnswer}
+                className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:text-sm"
+              >
+                Reveal answer
+              </button>
+            </div>
           ) : (
             <p className="text-sm text-zinc-500">Select a word to type.</p>
           )}

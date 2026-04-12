@@ -50,11 +50,17 @@ export function CrosswordBoard({
   blindMode,
 }: Props) {
   const { grid } = puzzle;
+  const cols = grid[0]?.length ?? 0;
+  const rows = grid.length;
+  if (cols === 0 || rows === 0) return null;
+
   return (
     <div
-      className="inline-grid gap-px rounded-lg border border-zinc-700 bg-zinc-800 p-px"
+      className="grid w-full max-w-full min-w-0 gap-px rounded-lg border border-zinc-700 bg-zinc-800 p-px"
       style={{
-        gridTemplateColumns: `repeat(${grid[0]?.length ?? 0}, minmax(0, 2rem))`,
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+        aspectRatio: `${cols} / ${rows}`,
       }}
     >
       {grid.map((row, r) =>
@@ -72,7 +78,7 @@ export function CrosswordBoard({
             return (
               <div
                 key={`${r}-${c}`}
-                className="h-8 w-8 bg-zinc-950 sm:h-9 sm:w-9"
+                className="min-h-0 min-w-0 bg-zinc-950"
                 aria-hidden
               />
             );
@@ -95,7 +101,7 @@ export function CrosswordBoard({
               onClick={() => {
                 if (pickId) onSelectWord(pickId);
               }}
-              className={`relative flex h-8 w-8 items-center justify-center border text-sm font-semibold tabular-nums sm:h-9 sm:w-9 ${
+              className={`relative flex min-h-0 min-w-0 h-full w-full max-h-full max-w-full items-center justify-center border text-[clamp(0.65rem,2.6vmin,0.875rem)] font-semibold tabular-nums leading-none sm:text-sm ${
                 pickId ? "cursor-pointer hover:bg-zinc-800/80" : "cursor-default opacity-60"
               } ${
                 inSelected
@@ -117,14 +123,14 @@ export function CrosswordBoard({
             >
               {startNum != null ? (
                 <span
-                  className={`pointer-events-none absolute left-0.5 top-0.5 z-10 text-[8px] font-bold leading-none sm:left-1 sm:top-1 sm:text-[9px] ${
+                  className={`pointer-events-none absolute left-[0.1em] top-[0.15em] z-10 text-[clamp(6px,1.8vmin,9px)] font-bold leading-none sm:left-1 sm:top-1 ${
                     startGraded ? "text-emerald-400" : "text-zinc-400"
                   }`}
                 >
                   {startNum}
                 </span>
               ) : null}
-              <span className="pointer-events-none font-semibold">{char || "\u00a0"}</span>
+              <span className="pointer-events-none font-semibold tabular-nums">{char || "\u00a0"}</span>
             </button>
           );
         }),
