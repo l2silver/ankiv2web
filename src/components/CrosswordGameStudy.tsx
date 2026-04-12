@@ -312,7 +312,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           <code className="rounded bg-zinc-900 px-1 text-zinc-300">type: &quot;Crossword&quot;</code>, plus{" "}
           <code className="rounded bg-zinc-900 px-1 text-zinc-300">question</code> /{" "}
           <code className="rounded bg-zinc-900 px-1 text-zinc-300">answer</code>) with answers of at least{" "}
-          2 letters (A–Z) on due cards in this deck.
+          2 letters (letters only; case is ignored) on due cards in this deck.
         </p>
       </div>
     );

@@ -3,14 +3,14 @@ import type { CrosswordView, GridCell } from "./types";
 
 function userCharAt(wordId: string | null, offset: number | null, inputByWord: Record<string, string>): string {
   if (wordId === null || offset === null) return "";
-  const s = (inputByWord[wordId] ?? "").toUpperCase();
+  const s = (inputByWord[wordId] ?? "").toLowerCase();
   const ch = s[offset];
   if (ch === "." || !ch) return "";
-  return /[A-Z]/.test(ch) ? ch : "";
+  return /[a-z]/.test(ch) ? ch : "";
 }
 
 function wordInputHasAnyLetter(wordId: string, inputByWord: Record<string, string>): boolean {
-  return /[A-Z]/.test((inputByWord[wordId] ?? "").toUpperCase());
+  return /[a-z]/.test((inputByWord[wordId] ?? "").toLowerCase());
 }
 
 /**
@@ -59,7 +59,7 @@ export function displayCellLetter(
           return { char: u, isDecoy: false, isBlocked: false };
         }
         const offD = cell.downOffset ?? 0;
-        const userDown = (inputByWord[wd] ?? "").toUpperCase();
+        const userDown = (inputByWord[wd] ?? "").toLowerCase();
         const seed = `${decoySeedPrefix}|${wd}|${userDown}|${offD}|a|${correctA}`;
         return { char: decoyLetter(correctA, seed), isDecoy: true, isBlocked: false };
       }
@@ -94,7 +94,7 @@ export function displayCellLetter(
         return { char: u, isDecoy: false, isBlocked: false };
       }
       const offA = cell.acrossOffset ?? 0;
-      const userAcross = (inputByWord[wa] ?? "").toUpperCase();
+      const userAcross = (inputByWord[wa] ?? "").toLowerCase();
       const seed = `${decoySeedPrefix}|${wa}|${userAcross}|${offA}|d|${correctD}`;
       return { char: decoyLetter(correctD, seed), isDecoy: true, isBlocked: false };
     }

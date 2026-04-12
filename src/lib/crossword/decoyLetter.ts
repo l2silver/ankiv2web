@@ -1,11 +1,11 @@
-const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
 /**
- * Deterministic decoy capital letter: never equals `correct` (single A–Z).
+ * Deterministic decoy letter: never equals `correct` (single a–z).
  * Used at overlap cells when the perpendicular word is not yet solved correctly.
  */
 export function decoyLetter(correct: string, seed: string): string {
-  const c = correct.toUpperCase().slice(0, 1);
+  const c = correct.toLowerCase().slice(0, 1);
   const pool = ALPHABET.split("").filter((ch) => ch !== c);
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {

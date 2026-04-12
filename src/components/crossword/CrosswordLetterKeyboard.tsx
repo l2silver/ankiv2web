@@ -5,10 +5,28 @@ import { useEffect, useRef, useState } from "react";
 import { toSlotString } from "@/lib/crossword/normalizeAnswer";
 
 const ROWS: string[][] = [
-  ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
-  ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-  ["Z", "X", "C", "V", "B", "N", "M"],
+  ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+  ["a", "s", "d", "f", "g", "h", "j", "k", "l"],
+  ["z", "x", "c", "v", "b", "n", "m"],
 ];
+
+/** Accented vowels and ç; parent `toSlotString` folds to a–z. */
+const FRENCH_VOWEL_ACCENTS = [
+  "à",
+  "â",
+  "è",
+  "é",
+  "ê",
+  "ë",
+  "î",
+  "ï",
+  "ô",
+  "ù",
+  "û",
+  "ü",
+  "ÿ",
+  "ç",
+] as const;
 
 type Props = {
   value: string;
@@ -72,7 +90,7 @@ export function CrosswordLetterKeyboard({
     if (!canType) return;
     const chars = slotStr.split("");
     let i = Math.min(cursorIndex, slotCount - 1);
-    if (chars[i] !== "." && /[A-Z]/.test(chars[i]!)) {
+    if (chars[i] !== "." && /[a-z]/.test(chars[i]!)) {
       chars[i] = ".";
       applySlot(chars);
       return;
@@ -97,7 +115,7 @@ export function CrosswordLetterKeyboard({
 
       if (e.key === "Backspace") {
         e.preventDefault();
-        if (chars[i] !== "." && /[A-Z]/.test(chars[i]!)) {
+        if (chars[i] !== "." && /[a-z]/.test(chars[i]!)) {
           chars[i] = ".";
           onValueChange(chars.join(""));
           return;
@@ -112,10 +130,13 @@ export function CrosswordLetterKeyboard({
       }
 
       if (e.key.length === 1) {
-        const u = e.key.toUpperCase();
-        if (u >= "A" && u <= "Z") {
+        const folded = e.key
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        if (folded.length === 1 && folded >= "a" && folded <= "z") {
           e.preventDefault();
-          chars[i] = u;
+          chars[i] = folded;
           onValueChange(chars.join(""));
           if (i < slotCount - 1) setCursorIndex(i + 1);
         }
@@ -191,6 +212,24 @@ export function CrosswordLetterKeyboard({
             ))}
           </div>
         ))}
+        <div
+          role="group"
+          aria-label="French accented vowels and ç"
+          className="flex flex-wrap justify-center gap-1 sm:gap-1.5"
+        >
+          {FRENCH_VOWEL_ACCENTS.map((letter) => (
+            <button
+              key={letter}
+              type="button"
+              disabled={!canType}
+              onClick={() => insertLetter(letter)}
+              id={`${idPrefix}-fr-${letter}`}
+              className={`${keyBtn} min-w-8 flex-none sm:min-w-9`}
+            >
+              {letter}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
