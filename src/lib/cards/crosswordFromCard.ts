@@ -44,7 +44,7 @@ export function resolveCrosswordGradeCardId(
 export function crosswordQuestionsFromCard(card: CardEntity): CrosswordQuestion[] {
   const out: CrosswordQuestion[] = [];
   for (const item of card.more_questions ?? []) {
-    if (item.type !== "Crossword") continue;
+    if (String(item.type ?? "").trim().toLowerCase() !== "crossword") continue;
     const ext = item as MoreQuestion & { questions?: CrosswordQuestion[] };
     if (Array.isArray(ext.questions) && ext.questions.length > 0) {
       const parentVt =

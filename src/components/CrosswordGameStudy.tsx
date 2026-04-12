@@ -12,8 +12,9 @@ import {
   normalizeCrosswordAnswer,
   toSlotString,
 } from "@/lib/crossword/normalizeAnswer";
-import type { CrosswordView } from "@/lib/crossword/types";
-import { dueCardIdsForDeck } from "@/lib/cards/deckTree";
+import { CROSSWORD_MAX, type CrosswordView } from "@/lib/crossword/types";
+import { cardMatchesDeckPath, dueCardIdsForDeck } from "@/lib/cards/deckTree";
+import { isCardDueNow } from "@/lib/cards/due";
 import {
   intervalHintForGrade,
   scheduleAfterReview,
@@ -32,22 +33,59 @@ type Props = {
   deckPath: string;
 };
 
+function cardHasPlayableCrossword(card: CardEntity): boolean {
+  for (const q of crosswordQuestionsFromCard(card)) {
+    if (normalizeCrosswordAnswer(q.answer ?? "").length >= 2) return true;
+  }
+  return false;
+}
+
+/**
+ * Prefer the same due queue as flashcards; if nothing is due in this subtree, fall back to any
+ * non-suspended card in the deck that has at least one playable Crossword clue so practice is possible.
+ */
+function crosswordSourceCardIdsForDeck(
+  byId: Record<string, CardEntity>,
+  allIds: readonly string[],
+  deckPath: string,
+  nowMs: number,
+): { sourceCardIds: string[]; usingNotDueFallback: boolean } {
+  const strict = dueCardIdsForDeck(byId, [...allIds], deckPath, nowMs, "all");
+  if (strict.length > 0) return { sourceCardIds: strict, usingNotDueFallback: false };
+
+  const fb = allIds.filter((id) => {
+    const c = byId[id];
+    if (!c || c.suspended || c.buried || !cardMatchesDeckPath(c, deckPath)) return false;
+    return cardHasPlayableCrossword(c);
+  });
+  fb.sort((a, b) => {
+    const ta = Date.parse(byId[a]?.due_at ?? "") || 0;
+    const tb = Date.parse(byId[b]?.due_at ?? "") || 0;
+    if (ta !== tb) return ta - tb;
+    return a.localeCompare(b);
+  });
+  return { sourceCardIds: fb, usingNotDueFallback: true };
+}
+
 function clueInputsFromDueCards(
   byId: Parameters<typeof dueCardIdsForDeck>[0],
-  dueIds: string[],
+  sourceCardIds: string[],
   allIds: readonly string[],
-): { id: string; question: string; answer: string }[] {
+): { clues: { id: string; question: string; answer: string }[]; answersTruncatedToGridMax: number } {
   const out: { id: string; question: string; answer: string }[] = [];
   const seenClue = new Set<string>();
   let seq = 0;
-  for (const cardId of dueIds) {
+  let answersTruncatedToGridMax = 0;
+  for (const cardId of sourceCardIds) {
     const card = byId[cardId];
     if (!card) continue;
     const cq = crosswordQuestionsFromCard(card);
     if (!cq.length) continue;
     for (const q of cq) {
-      const answer = normalizeCrosswordAnswer(q.answer ?? "");
-      if (answer.length < 2) continue;
+      const full = normalizeCrosswordAnswer(q.answer ?? "");
+      if (full.length < 2) continue;
+      if (full.length > CROSSWORD_MAX) answersTruncatedToGridMax += 1;
+      const answer = full.slice(0, CROSSWORD_MAX);
       const gradeId = resolveCrosswordGradeCardId(
         card,
         q.variantType ?? (q as { variant_type?: string }).variant_type,
@@ -63,7 +101,20 @@ function clueInputsFromDueCards(
       out.push({ id, question, answer });
     }
   }
-  return out;
+  return { clues: out, answersTruncatedToGridMax };
+}
+
+function CrosswordDataDebugPanel({ deckPath, payload }: { deckPath: string; payload: Record<string, unknown> }) {
+  return (
+    <details className="mt-6 rounded-lg border border-zinc-700 bg-zinc-950/80 p-3 text-left open:pb-4">
+      <summary className="cursor-pointer select-none text-xs font-semibold text-zinc-400">
+        Crossword debug — what the app sees <span className="font-normal text-zinc-600">({deckPath})</span>
+      </summary>
+      <pre className="mt-3 max-h-[min(70vh,32rem)] overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-snug text-zinc-300 sm:text-xs">
+        {JSON.stringify(payload, null, 2)}
+      </pre>
+    </details>
+  );
 }
 
 const GRADE_ROWS: { grade: ReviewGrade; label: string; className: string }[] = [
@@ -145,12 +196,94 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     void dispatch(hydrateFromIDB());
   }, [dispatch]);
 
-  const dueIds = useMemo(() => {
+  const { sourceCardIds, usingNotDueFallback } = useMemo(() => {
     const nowMs = Date.now();
-    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs);
+    return crosswordSourceCardIdsForDeck(byId, allIds, deckPath, nowMs);
   }, [byId, allIds, deckPath]);
 
-  const flatClues = useMemo(() => clueInputsFromDueCards(byId, dueIds, allIds), [byId, dueIds, allIds]);
+  const { clues: flatClues, answersTruncatedToGridMax } = useMemo(
+    () => clueInputsFromDueCards(byId, sourceCardIds, allIds),
+    [byId, sourceCardIds, allIds],
+  );
+
+  const deckDebug = useMemo(() => {
+    let inDeck = 0;
+    let withMq = 0;
+    let withPlayableCross = 0;
+    let dueInDeck = 0;
+    const nowMs = Date.now();
+    for (const id of allIds) {
+      const c = byId[id];
+      if (!c || !cardMatchesDeckPath(c, deckPath)) continue;
+      inDeck++;
+      if (c.more_questions?.length) withMq++;
+      if (cardHasPlayableCrossword(c)) withPlayableCross++;
+      if (isCardDueNow(c, nowMs)) dueInDeck++;
+    }
+    return { inDeck, withMq, withPlayableCross, dueInDeck };
+  }, [allIds, byId, deckPath]);
+
+  const crosswordDebugPayload = useMemo(() => {
+    const truncateMq = (mq: CardEntity["more_questions"]): unknown => {
+      if (!Array.isArray(mq)) return mq;
+      const max = 40;
+      if (mq.length <= max) return mq;
+      return [...mq.slice(0, max), { _note: `${mq.length - max} more_questions rows omitted in this view` }];
+    };
+
+    let card: CardEntity | undefined;
+    const scanOrder = sourceCardIds.length > 0 ? sourceCardIds : allIds;
+    for (const id of scanOrder) {
+      const c = byId[id];
+      if (!c) continue;
+      if (sourceCardIds.length === 0 && !cardMatchesDeckPath(c, deckPath)) continue;
+      if (c.more_questions != null && c.more_questions.length > 0) {
+        card = c;
+        break;
+      }
+    }
+
+    const derived = card ? crosswordQuestionsFromCard(card) : [];
+    const sample = card
+      ? {
+          id: card.id,
+          deck_id: card.deck_id,
+          card_variant: card.card_variant,
+          note_type: card.note_type,
+          due_at: card.due_at,
+          more_questions_on_card: truncateMq(card.more_questions),
+          crossword_type_rows_only: (card.more_questions ?? []).filter(
+            (r) => String(r.type ?? "").trim().toLowerCase() === "crossword",
+          ),
+          crosswordQuestionsFromCard_derived: derived,
+          normalized_each_derived_clue: derived.map((q) => {
+            const norm = normalizeCrosswordAnswer(q.answer ?? "");
+            return {
+              question: q.question,
+              raw_answer: q.answer,
+              normalized_full: norm,
+              normalized_full_length: norm.length,
+              grid_answer_used: norm.slice(0, CROSSWORD_MAX),
+              grid_answer_length: Math.min(norm.length, CROSSWORD_MAX),
+              variantType: q.variantType,
+            };
+          }),
+        }
+      : null;
+
+    return {
+      deck_path_from_url: deckPath,
+      grid_max_word_length: CROSSWORD_MAX,
+      subtree_counts: deckDebug,
+      using_not_due_fallback: usingNotDueFallback,
+      source_card_ids_count: sourceCardIds.length,
+      source_card_ids_first_12: sourceCardIds.slice(0, 12),
+      flat_clues_after_pipeline_count: flatClues.length,
+      clues_truncated_to_first_15_letters: answersTruncatedToGridMax,
+      flat_clues_preview_first_5: flatClues.slice(0, 5),
+      first_card_in_path_with_more_questions: sample,
+    };
+  }, [allIds, byId, deckDebug, deckPath, flatClues, answersTruncatedToGridMax, sourceCardIds, usingNotDueFallback]);
 
   const puzzle = useMemo(() => buildPuzzle(flatClues), [flatClues]);
 
@@ -293,7 +426,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     return puzzle.words.every((w) => isCrosswordSlotComplete(inputByWord[w.id] ?? "", w.answer.length));
   }, [puzzle, inputByWord]);
 
-  if (dueIds.length === 0) {
+  if (sourceCardIds.length === 0) {
     return (
       <div className="mx-auto max-w-2xl">
         <p className="text-sm text-zinc-500">
@@ -302,9 +435,28 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           </Link>
         </p>
         <h1 className="mt-4 text-xl font-semibold text-zinc-100">Crossword Game</h1>
-        <p className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-6 text-sm text-zinc-400">
-          Nothing due in this deck right now — crossword uses the same due queue as flashcards.
+        <p className="mt-1 truncate text-xs text-zinc-600" title={deckPath}>
+          <span className="text-zinc-500">Deck</span> <span className="text-zinc-400">{deckPath}</span>
         </p>
+        <p className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-6 text-sm text-zinc-400">
+          No cards in this deck path have playable Crossword clues, or none match after filters (suspended / buried
+          excluded). Crossword needs{" "}
+          <code className="rounded bg-zinc-900 px-1 text-zinc-300">more_questions</code> with{" "}
+          <code className="rounded bg-zinc-900 px-1 text-zinc-300">type: &quot;Crossword&quot;</code> and answers that
+          yield at least 2 letters (a–z) after normalization.
+        </p>
+        <p className="mt-4 text-xs leading-relaxed text-zinc-600">
+          Local snapshot for this path:{" "}
+          <span className="text-zinc-500">
+            {deckDebug.inDeck} card(s) in subtree, {deckDebug.dueInDeck} due now, {deckDebug.withMq} with{" "}
+            <code className="text-zinc-500">more_questions</code>, {deckDebug.withPlayableCross} with a playable
+            Crossword answer.
+          </span>{" "}
+          If counts are zero, the <span className="text-zinc-500">deck path</span> may not match{" "}
+          <code className="text-zinc-500">deck_id</code> on your cards (e.g. <code className="text-zinc-500">French3</code>{" "}
+          vs <code className="text-zinc-500">French</code>), or cards have not been pulled into this device yet.
+        </p>
+        <CrosswordDataDebugPanel deckPath={deckPath} payload={crosswordDebugPayload} />
       </div>
     );
   }
@@ -322,13 +474,23 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           <span className="text-zinc-500">Deck</span> <span className="text-zinc-400">{deckPath}</span>
         </p>
         <p className="mt-6 rounded-xl border border-amber-900/50 bg-amber-950/20 px-5 py-6 text-sm text-amber-200/90">
-          No playable clues: add{" "}
-          <code className="rounded bg-zinc-900 px-1 text-zinc-300">more_questions</code> entries (each{" "}
-          <code className="rounded bg-zinc-900 px-1 text-zinc-300">type: &quot;Crossword&quot;</code>, plus{" "}
-          <code className="rounded bg-zinc-900 px-1 text-zinc-300">question</code> /{" "}
-          <code className="rounded bg-zinc-900 px-1 text-zinc-300">answer</code>) with answers of at least{" "}
-          2 letters (letters only; case is ignored) on due cards in this deck.
+          No playable clues from the selected cards: each Crossword row needs{" "}
+          <code className="rounded bg-zinc-900 px-1 text-zinc-300">question</code> and{" "}
+          <code className="rounded bg-zinc-900 px-1 text-zinc-300">answer</code>. After normalization (a–z only), the
+          answer must normalize to at least 2 letters (a–z). Answers longer than {CROSSWORD_MAX} letters are truncated
+          to the first {CROSSWORD_MAX} for the grid (the on-screen cap is {CROSSWORD_MAX}×{CROSSWORD_MAX}).
         </p>
+        <p className="mt-4 text-xs leading-relaxed text-zinc-600">
+          {deckDebug.dueInDeck > 0 && flatClues.length === 0 ? (
+            <>
+              You have <span className="text-zinc-500">{deckDebug.dueInDeck}</span> due card(s) in this subtree, but
+              none produced clues — check that <code className="text-zinc-500">more_questions</code> survived sync
+              (API field <code className="text-zinc-500">more_questions</code> or{" "}
+              <code className="text-zinc-500">moreQuestions</code>).
+            </>
+          ) : null}
+        </p>
+        <CrosswordDataDebugPanel deckPath={deckPath} payload={crosswordDebugPayload} />
       </div>
     );
   }
@@ -355,6 +517,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         >
           Back to decks
         </Link>
+        <CrosswordDataDebugPanel deckPath={deckPath} payload={crosswordDebugPayload} />
       </div>
     );
   }
@@ -373,6 +536,14 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       <p className="mt-1 truncate text-xs text-zinc-600" title={deckPath}>
         <span className="text-zinc-500">Deck</span> <span className="text-zinc-400">{deckPath}</span>
       </p>
+
+      {usingNotDueFallback ? (
+        <p className="mt-3 rounded-lg border border-violet-900/50 bg-violet-950/25 px-3 py-2 text-xs text-violet-200/95">
+          No cards are <span className="font-medium text-violet-100">due right now</span> in this path. Showing
+          Crossword clues from other cards in the same deck anyway so you can still practice (scheduling still applies
+          when you grade a word).
+        </p>
+      ) : null}
 
       <p className="mt-4 text-sm leading-relaxed text-zinc-400">
         This is not a classic crossword: at crossings the <strong className="font-medium text-zinc-200">across</strong>{" "}
@@ -481,6 +652,8 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           ) : null}
         </section>
       </div>
+
+      <CrosswordDataDebugPanel deckPath={deckPath} payload={crosswordDebugPayload} />
     </div>
   );
 }

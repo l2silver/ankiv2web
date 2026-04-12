@@ -39,10 +39,11 @@ function optMoreQuestions(v: unknown): MoreQuestion[] | undefined {
     if (item === null || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     const typeStr = optString(o.type);
+    const typeNorm = typeStr?.trim().toLowerCase() ?? "";
     const question = optString(o.question);
     const answer = optString(o.answer);
 
-    if (typeStr === "Crossword" && Array.isArray(o.questions)) {
+    if (typeNorm === "crossword" && Array.isArray(o.questions)) {
       const nested = optCrosswordQuestions(o.questions);
       if (nested === undefined) continue;
       const parentVt = optString(o.variantType) ?? optString(o.variant_type);
@@ -63,6 +64,7 @@ function optMoreQuestions(v: unknown): MoreQuestion[] | undefined {
 
     const row = JSON.parse(JSON.stringify(o)) as MoreQuestion;
     row.type = typeStr && typeStr !== "" ? typeStr : "FillIn";
+    if (typeNorm === "crossword") row.type = "Crossword";
     row.question = question;
     row.answer = answer;
     delete row.questions;

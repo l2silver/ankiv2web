@@ -196,7 +196,9 @@ function rebaseWords(words: PlacedWord[], minR: number, minC: number): PlacedWor
  * First clue is across, centered; further clues alternate down/across and attach with a mismatched crossing.
  */
 export function buildPuzzle(clues: ClueIn[]): BuiltPuzzle | null {
-  const usable = clues.filter((x) => x.answer.length >= 2);
+  const usable = clues.filter(
+    (x) => x.answer.length >= 2 && x.answer.length <= CROSSWORD_MAX,
+  );
   if (usable.length === 0) return null;
 
   const first = usable[0]!;
