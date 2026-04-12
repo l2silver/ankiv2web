@@ -9,6 +9,7 @@ import {
   markCardDirtyLocal,
   pullNewCards,
   pushDirtyCards,
+  refreshCardBodiesFromServer,
 } from "@/features/sync/syncThunks";
 import {
   getDisplayApiBaseUrl,
@@ -171,6 +172,15 @@ export function HomePage() {
                 className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
               >
                 {sync.isPulling ? "Pulling…" : "Pull new cards"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void dispatch(refreshCardBodiesFromServer())}
+                disabled={!pullReady || sync.isPulling || sync.isPushing || pullMock}
+                title="POST /cards/by-ids: merge server rows when updated_at is newer (dirty cards skipped). Use after editing more_questions on the server."
+                className="rounded-lg border border-sky-700/80 bg-sky-950/40 px-4 py-2 text-sm font-medium text-sky-100 hover:bg-sky-950/70 disabled:opacity-50"
+              >
+                {sync.isPulling ? "…" : "Refresh card bodies"}
               </button>
               <button
                 type="button"

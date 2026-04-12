@@ -6,6 +6,7 @@ import {
   markCardDirtyLocal,
   pullNewCards,
   pushDirtyCards,
+  refreshCardBodiesFromServer,
 } from "@/features/sync/syncThunks";
 
 type SyncState = {
@@ -55,6 +56,18 @@ const syncSlice = createSlice({
       .addCase(pullNewCards.rejected, (state, action) => {
         state.isPulling = false;
         state.lastError = String(action.payload ?? action.error.message ?? "pull failed");
+      })
+      .addCase(refreshCardBodiesFromServer.pending, (state) => {
+        state.isPulling = true;
+        state.lastError = null;
+      })
+      .addCase(refreshCardBodiesFromServer.fulfilled, (state, action) => {
+        state.isPulling = false;
+        if (action.payload.at) state.lastPullAt = action.payload.at;
+      })
+      .addCase(refreshCardBodiesFromServer.rejected, (state, action) => {
+        state.isPulling = false;
+        state.lastError = String(action.payload ?? action.error.message ?? "refresh bodies failed");
       })
       .addCase(pushDirtyCards.pending, (state) => {
         state.isPushing = true;

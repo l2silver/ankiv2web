@@ -38,3 +38,7 @@ export type CardsNewIndexRequest = {
 export type CardsNewIndexResponse = {
   cards: Record<string, unknown>[];
 };
+
+export type CardsByIdsRequest = {
+  ids: string[];
+};

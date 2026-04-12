@@ -1,7 +1,7 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 
 import { isApiReadyForRequests, isPullAvailable } from "@/lib/api/client";
-import { patchSync, postCardsNewIndex } from "@/lib/api/sync";
+import { patchSync, postCardsByIds, postCardsNewIndex } from "@/lib/api/sync";
 import { normalizeServerCard } from "@/lib/cards/normalize";
 import { cardUpdatedAtEpochMs } from "@/lib/cards/updatedAt";
 import { storedCardToSyncPatch } from "@/lib/cards/syncPatch";
@@ -107,6 +107,57 @@ export const pullNewCards = createAsyncThunk(
       const at = new Date().toISOString();
       await idbSetMeta("lastPullAt", at);
       return { pulled: toRedux.length, at };
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
+/**
+ * Fetches full card rows from the server for ids already in IndexedDB (batches of 200).
+ * Merges when server `updated_at` is newer than local and the card is not dirty — use after server-side edits
+ * to `more_questions` (e.g. Crossword rows), because `pullNewCards` only returns ids **not** already held locally.
+ */
+export const refreshCardBodiesFromServer = createAsyncThunk(
+  "sync/refreshCardBodiesFromServer",
+  async (_, { dispatch, rejectWithValue }) => {
+    try {
+      if (!isPullAvailable()) {
+        throw new Error(
+          "Refresh unavailable: set API URL + key in first-run setup (or NEXT_PUBLIC_API_URL and NEXT_PUBLIC_API_KEY at build time). Pull mock cannot refresh by id.",
+        );
+      }
+      const all = await idbGetAllIds();
+      const existing = await idbGetAllCards();
+      const existingById = new Map(existing.map((r) => [r.id, r]));
+      const dirtyIds = new Set(existing.filter((r) => r._dirty).map((r) => r.id));
+      const batchSize = 200;
+      let refreshed = 0;
+      for (let i = 0; i < all.length; i += batchSize) {
+        const chunk = all.slice(i, i + batchSize);
+        const { cards } = await postCardsByIds({ ids: chunk });
+        const toStore: StoredCard[] = [];
+        const toRedux: CardEntity[] = [];
+        for (const raw of cards) {
+          const e = normalizeServerCard(raw as Record<string, unknown>);
+          if (!e) continue;
+          if (dirtyIds.has(e.id)) continue;
+          const prev = existingById.get(e.id);
+          if (prev) {
+            const localMs = cardUpdatedAtEpochMs(storedToEntity(prev));
+            const serverMs = cardUpdatedAtEpochMs(e);
+            if (serverMs <= localMs) continue;
+          }
+          toStore.push({ ...e });
+          toRedux.push({ ...e, dirty: false });
+          refreshed += 1;
+        }
+        if (toStore.length) await idbPutCards(toStore);
+        if (toRedux.length) dispatch(upsertMany(toRedux));
+      }
+      const at = new Date().toISOString();
+      await idbSetMeta("lastPullAt", at);
+      return { refreshed, at };
     } catch (e) {
       return rejectWithValue(e instanceof Error ? e.message : String(e));
     }
