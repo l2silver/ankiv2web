@@ -1,9 +1,11 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
-/** `{ question, answer }` clue text for the crossword grid (from each `more_questions` row with `type: "Crossword"`). */
+/** Clue text for the crossword grid (from each `more_questions` row with `type: "Crossword"`). */
 export type CrosswordQuestion = {
   question: string;
   answer: string;
+  /** When set, clue is only used for the matching `card_variant` (same wire string as the card). */
+  variantType?: string;
 };
 
 /**

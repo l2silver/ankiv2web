@@ -22,7 +22,10 @@ import {
 import { cardIdFromPlacedWordId } from "@/lib/crossword/wordIdCard";
 import { wordStartNumberByCell } from "@/lib/crossword/wordNumbers";
 import type { CardEntity } from "@/features/cards/cardsSlice";
-import { crosswordQuestionsFromCard } from "@/lib/cards/crosswordFromCard";
+import {
+  crosswordQuestionsFromCard,
+  resolveCrosswordGradeCardId,
+} from "@/lib/cards/crosswordFromCard";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 
 type Props = {
@@ -32,22 +35,33 @@ type Props = {
 function clueInputsFromDueCards(
   byId: Parameters<typeof dueCardIdsForDeck>[0],
   dueIds: string[],
+  allIds: readonly string[],
 ): { id: string; question: string; answer: string }[] {
   const out: { id: string; question: string; answer: string }[] = [];
+  const seenClue = new Set<string>();
+  let seq = 0;
   for (const cardId of dueIds) {
     const card = byId[cardId];
     if (!card) continue;
     const cq = crosswordQuestionsFromCard(card);
     if (!cq.length) continue;
-    cq.forEach((q, idx) => {
+    for (const q of cq) {
       const answer = normalizeCrosswordAnswer(q.answer ?? "");
-      if (answer.length < 2) return;
-      out.push({
-        id: `${cardId}::${idx}`,
-        question: q.question?.trim() || "(no clue)",
-        answer,
-      });
-    });
+      if (answer.length < 2) continue;
+      const gradeId = resolveCrosswordGradeCardId(
+        card,
+        q.variantType ?? (q as { variant_type?: string }).variant_type,
+        byId,
+        allIds,
+      );
+      const question = q.question?.trim() || "(no clue)";
+      const dedupeKey = `${gradeId}\t${answer}\t${question}`;
+      if (seenClue.has(dedupeKey)) continue;
+      seenClue.add(dedupeKey);
+      const id = `${gradeId}::${seq}`;
+      seq += 1;
+      out.push({ id, question, answer });
+    }
   }
   return out;
 }
@@ -99,7 +113,8 @@ function CrosswordGradeButtons({
     <div className="mt-4 border-t border-zinc-800/80 pt-4">
       <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
       <p className="mt-1 text-[11px] text-zinc-600">
-        Same scheduler as flashcards. Rates the <span className="text-zinc-500">card</span> this clue comes from.
+        Same scheduler as flashcards. Updates the <span className="text-zinc-500">card variant</span> for this clue
+        (see <span className="text-zinc-500">variantType</span> on Crossword rows when set).
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {GRADE_ROWS.map(({ grade, label, className }) => (
@@ -135,7 +150,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     return dueCardIdsForDeck(byId, allIds, deckPath, nowMs);
   }, [byId, allIds, deckPath]);
 
-  const flatClues = useMemo(() => clueInputsFromDueCards(byId, dueIds), [byId, dueIds]);
+  const flatClues = useMemo(() => clueInputsFromDueCards(byId, dueIds, allIds), [byId, dueIds, allIds]);
 
   const puzzle = useMemo(() => buildPuzzle(flatClues), [flatClues]);
 

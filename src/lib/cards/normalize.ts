@@ -22,7 +22,12 @@ function optCrosswordQuestions(v: unknown): CrosswordQuestion[] | undefined {
     const question = optString(o.question);
     const answer = optString(o.answer);
     if (question === undefined || answer === undefined) continue;
-    out.push({ question, answer });
+    const subVt = optString(o.variantType) ?? optString(o.variant_type);
+    out.push({
+      question,
+      answer,
+      ...(subVt ? { variantType: subVt } : {}),
+    });
   }
   return out.length > 0 ? out : [];
 }
@@ -40,8 +45,16 @@ function optMoreQuestions(v: unknown): MoreQuestion[] | undefined {
     if (typeStr === "Crossword" && Array.isArray(o.questions)) {
       const nested = optCrosswordQuestions(o.questions);
       if (nested === undefined) continue;
+      const parentVt = optString(o.variantType) ?? optString(o.variant_type);
       for (const q of nested) {
-        out.push({ type: "Crossword", question: q.question, answer: q.answer });
+        const mergedVt = q.variantType ?? parentVt;
+        const row = {
+          type: "Crossword" as const,
+          question: q.question,
+          answer: q.answer,
+          ...(mergedVt ? { variantType: mergedVt } : {}),
+        };
+        out.push(row as MoreQuestion);
       }
       continue;
     }
@@ -99,8 +112,8 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   if (suspended !== undefined) card.suspended = suspended;
   if (buried !== undefined) card.buried = buried;
 
-  let more_questions = optMoreQuestions(raw.more_questions);
-  const legacyCross = optCrosswordQuestions(raw.crossword_questions);
+  let more_questions = optMoreQuestions(raw.more_questions ?? raw["moreQuestions"]);
+  const legacyCross = optCrosswordQuestions(raw.crossword_questions ?? raw["crosswordQuestions"]);
   if (legacyCross !== undefined && legacyCross.length > 0) {
     const hasCrosswordClues = more_questions?.some(m => m.type === "Crossword") ?? false;
     if (!hasCrosswordClues) {
