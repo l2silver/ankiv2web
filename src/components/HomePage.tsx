@@ -29,8 +29,6 @@ import { DeckTreeRows } from "@/components/DeckTreeRows";
 import { clearStoredCredentials } from "@/lib/settings/apiCredentials";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 
-const isDev = process.env.NODE_ENV === "development";
-
 export function HomePage() {
   const dispatch = useAppDispatch();
   const [isClearingIdb, setIsClearingIdb] = useState(false);
@@ -124,6 +122,10 @@ export function HomePage() {
                 <code className="text-amber-500/90">src/lib/mock/cards-new-index.response.json</code>
               </p>
             ) : null}
+            <p className="mb-3 text-xs text-zinc-500">
+              Use <span className="text-zinc-400">Reset app</span> to wipe this browser&apos;s copy of all cards and
+              start over (same as a fresh install for local data). API credentials stay unless you clear them below.
+            </p>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-4">
                 <dt className="text-zinc-500">isPulling</dt>
@@ -197,31 +199,32 @@ export function HomePage() {
               >
                 Clear error
               </button>
-              {isDev ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        "Delete the local ankiv2 IndexedDB (all cards + sync timestamps), then re-hydrate and pull if available?",
-                      )
-                    ) {
-                      return;
-                    }
-                    setIsClearingIdb(true);
-                    void dispatch(clearIndexedDbCards({}))
-                      .unwrap()
-                      .catch(() => {
-                        /* sync.lastError */
-                      })
-                      .finally(() => setIsClearingIdb(false));
-                  }}
-                  disabled={isClearingIdb || sync.isPulling || sync.isPushing}
-                  className="rounded-lg border border-rose-900/80 bg-rose-950/40 px-4 py-2 text-sm text-rose-100 hover:bg-rose-950/70 disabled:opacity-50"
-                >
-                  {isClearingIdb ? "Clearing…" : "Clear IndexedDB & re-pull"}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      "Erase all local Anki2 data?\n\n" +
+                        "This deletes the IndexedDB database (every card, dirty flags, last pull/push timestamps). " +
+                        "Your API URL and key in this browser are not removed.\n\n" +
+                        "Afterwards the app reloads from empty state and will pull new cards from the server if pull is available.",
+                    )
+                  ) {
+                    return;
+                  }
+                  setIsClearingIdb(true);
+                  void dispatch(clearIndexedDbCards({}))
+                    .unwrap()
+                    .catch(() => {
+                      /* sync.lastError */
+                    })
+                    .finally(() => setIsClearingIdb(false));
+                }}
+                disabled={isClearingIdb || sync.isPulling || sync.isPushing}
+                className="rounded-lg border border-rose-900/80 bg-rose-950/40 px-4 py-2 text-sm font-medium text-rose-100 hover:bg-rose-950/70 disabled:opacity-50"
+              >
+                {isClearingIdb ? "Resetting…" : "Reset app (erase local data)"}
+              </button>
               {!hasFullBuildTimeApiConfig() ? (
                 <button
                   type="button"
