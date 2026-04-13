@@ -75,15 +75,33 @@ function crosswordSourceCardIdsForDeck(
   return { sourceCardIds: fb, usingNotDueFallback: true };
 }
 
+/** Same note as `sameNote` in crosswordFromCard — group variant siblings for clue ordering. */
+function noteKeyForCrosswordClue(
+  byId: Record<string, CardEntity>,
+  gradeId: string,
+  carrier: CardEntity,
+): string {
+  const g = byId[gradeId] ?? carrier;
+  return JSON.stringify([g.deck_id ?? "", g.front ?? "", g.back ?? "", g.context ?? ""]);
+}
+
+type ClueScratch = { gradeId: string; question: string; answer: string };
+
+/**
+ * Build crossword clue list from due cards, then reorder so clues from the same note (including
+ * different variant / grade card ids) are interleaved with other notes. Within one note, order
+ * follows the original due walk; when only one note supplies clues, order is unchanged.
+ */
 function clueInputsFromDueCards(
   byId: Parameters<typeof dueCardIdsForDeck>[0],
   sourceCardIds: string[],
   allIds: readonly string[],
 ): { clues: { id: string; question: string; answer: string }[]; answersTruncatedToGridMax: number } {
-  const out: { id: string; question: string; answer: string }[] = [];
   const seenClue = new Set<string>();
-  let seq = 0;
+  const buckets = new Map<string, ClueScratch[]>();
+  const noteKeyOrder: string[] = [];
   let answersTruncatedToGridMax = 0;
+
   for (const cardId of sourceCardIds) {
     const card = byId[cardId];
     if (!card) continue;
@@ -104,11 +122,31 @@ function clueInputsFromDueCards(
       const dedupeKey = `${gradeId}\t${answer}\t${question}`;
       if (seenClue.has(dedupeKey)) continue;
       seenClue.add(dedupeKey);
-      const id = `${gradeId}::${seq}`;
-      seq += 1;
-      out.push({ id, question, answer });
+
+      const noteKey = noteKeyForCrosswordClue(byId, gradeId, card);
+      if (!buckets.has(noteKey)) {
+        buckets.set(noteKey, []);
+        noteKeyOrder.push(noteKey);
+      }
+      buckets.get(noteKey)!.push({ gradeId, question, answer });
     }
   }
+
+  const out: { id: string; question: string; answer: string }[] = [];
+  let seq = 0;
+  for (;;) {
+    let progressed = false;
+    for (const nk of noteKeyOrder) {
+      const q = buckets.get(nk);
+      if (!q || q.length === 0) continue;
+      const c = q.shift()!;
+      out.push({ id: `${c.gradeId}::${seq}`, question: c.question, answer: c.answer });
+      seq += 1;
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+
   return { clues: out, answersTruncatedToGridMax };
 }
 
