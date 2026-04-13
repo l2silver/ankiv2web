@@ -9,12 +9,21 @@ import {
 /** Same convention as Anki-style nested decks (`Parent::Child::Leaf`). */
 export const NESTED_DECK_SEPARATOR = "::";
 
+export type DeckPathAggregate = {
+  /** Due cards that appear in the flashcard study queue (same rules as `dueCardIdsForDeck(..., "flashcard")`). */
+  due: number;
+  /** Due cards that only qualify for crossword study (vacant `more_questions` with playable crossword). */
+  dueCrosswordOnly: number;
+  total: number;
+};
+
 export type DeckTreeNode = {
   /** Full path, e.g. `Science::Space::Inner Solar System`. */
   path: string;
   /** Last segment for display. */
   label: string;
   due: number;
+  dueCrosswordOnly: number;
   total: number;
   children: DeckTreeNode[];
 };
@@ -52,8 +61,8 @@ export function aggregateDeckPaths(
   byId: Record<string, CardEntity>,
   allIds: string[],
   nowMs: number,
-): Map<string, { due: number; total: number }> {
-  const map = new Map<string, { due: number; total: number }>();
+): Map<string, DeckPathAggregate> {
+  const map = new Map<string, DeckPathAggregate>();
 
   for (const id of allIds) {
     const c = byId[id];
@@ -61,11 +70,13 @@ export function aggregateDeckPaths(
     if (!countsInDeckTreeAggregates(c)) continue;
     const leaf = deckKeyFromCard(c);
     const cardDue = isCardDueNow(c, nowMs);
+    const flashEligible = countsInFlashcardStudyQueue(c);
     for (const prefix of deckPathPrefixes(leaf)) {
-      if (!map.has(prefix)) map.set(prefix, { due: 0, total: 0 });
+      if (!map.has(prefix)) map.set(prefix, { due: 0, dueCrosswordOnly: 0, total: 0 });
       const row = map.get(prefix)!;
       row.total++;
-      if (cardDue) row.due++;
+      if (cardDue && flashEligible) row.due++;
+      else if (cardDue && !flashEligible) row.dueCrosswordOnly++;
     }
   }
   return map;
@@ -86,7 +97,7 @@ function labelForPath(path: string): string {
   return i === -1 ? path : path.slice(i + NESTED_DECK_SEPARATOR.length);
 }
 
-export function buildDeckTree(map: Map<string, { due: number; total: number }>): DeckTreeNode[] {
+export function buildDeckTree(map: Map<string, DeckPathAggregate>): DeckTreeNode[] {
   const paths = [...map.keys()].sort((a, b) => a.localeCompare(b));
 
   function childPaths(parent: string | null): string[] {
@@ -99,6 +110,7 @@ export function buildDeckTree(map: Map<string, { due: number; total: number }>):
       path,
       label: labelForPath(path),
       due: agg.due,
+      dueCrosswordOnly: agg.dueCrosswordOnly,
       total: agg.total,
       children: childPaths(path).map(toNode),
     };

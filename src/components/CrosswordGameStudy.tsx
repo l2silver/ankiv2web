@@ -864,7 +864,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
               selectionKey={selectedWordId ?? ""}
             />
           </div>
-          {selectedWordFullyFilled && cardForSelectedWord ? (
+          {selectedWordFullyFilled && cardForSelectedWord && selectedWord ? (
             <>
               <CrosswordGradeButtons
                 card={cardForSelectedWord}

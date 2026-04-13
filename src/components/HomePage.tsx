@@ -69,14 +69,28 @@ export function HomePage() {
 
   const firstId = cards.allIds[0];
 
+  /** Recompute `due_at` comparisons periodically and when returning to the tab (otherwise counts freeze until card data changes). */
+  const [dueClock, setDueClock] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setDueClock((n) => n + 1), 60_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") setDueClock((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
   const { deckRoots, totalDue } = useMemo(() => {
-    // Due snapshot tied to card data updates; not a live clock tick.
-    // eslint-disable-next-line react-hooks/purity -- Date.now() snapshot when `cards` deps change
+    void dueClock;
+    // eslint-disable-next-line react-hooks/purity -- intentional wall-clock snapshot for scheduling
     const nowMs = Date.now();
     const map = aggregateDeckPaths(cards.byId, cards.allIds, nowMs);
     const totalDueCount = countDueCards(cards.byId, cards.allIds, nowMs);
     return { deckRoots: buildDeckTree(map), totalDue: totalDueCount };
-  }, [cards.allIds, cards.byId]);
+  }, [cards.allIds, cards.byId, dueClock]);
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-950 text-zinc-100">
@@ -93,9 +107,10 @@ export function HomePage() {
           <p className="mt-1 text-sm text-zinc-500">
             Nested decks use <code className="text-zinc-600">{NESTED_DECK_SEPARATOR}</code> in{" "}
             <code className="text-zinc-600">deck_id</code> (Anki-style). Deeper rows are indented; subdecks sit
-            under a vertical bar. Counts roll up to parents. Due = <code className="text-zinc-600">due_at</code>{" "}
-            ≤ now, not suspended, not buried.             Tap <span className="text-zinc-400">N due</span> when N &gt; 0 to open study and choose Flashcards or
-            Crossword Game.
+            under a vertical bar.             Counts roll up to parents. The first number is flashcard due (matches the flashcard queue); a{" "}
+            <span className="text-zinc-400">crossword due</span> suffix counts cards that only appear in crossword
+            study. <code className="text-zinc-600">due_at</code> ≤ now, not suspended, not buried; counts refresh about
+            every minute. Tap the due control when it is active to open study and choose Flashcards or Crossword Game.
           </p>
 
           {deckRoots.length === 0 ? (

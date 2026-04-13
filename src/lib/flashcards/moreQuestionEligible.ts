@@ -8,7 +8,7 @@ export function eligibleFlashcardMoreQuestions(card: CardEntity): MoreQuestion[]
   const mq = card.more_questions;
   if (!mq?.length) return [];
   return mq.filter((row) => {
-    if (row.type === "Crossword") return false;
+    if (String(row.type ?? "").trim().toLowerCase() === "crossword") return false;
     const q = row.question?.trim() ?? "";
     const a = row.answer?.trim() ?? "";
     return q.length > 0 && a.length > 0;

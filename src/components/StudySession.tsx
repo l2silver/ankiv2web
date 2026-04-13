@@ -232,15 +232,28 @@ export function StudySession({ deckPath }: Props) {
     void dispatch(hydrateFromIDB());
   }, [dispatch]);
 
-  const dueAllIds = useMemo(() => {
-    const nowMs = Date.now();
-    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "all");
-  }, [byId, allIds, deckPath]);
+  const [dueClock, setDueClock] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setDueClock((n) => n + 1), 60_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") setDueClock((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
-  const queue = useMemo(() => {
+  const { dueAllIds, queue } = useMemo(() => {
+    void dueClock;
+    // eslint-disable-next-line react-hooks/purity -- wall-clock for `due_at` vs now
     const nowMs = Date.now();
-    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard");
-  }, [byId, allIds, deckPath]);
+    return {
+      dueAllIds: dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "all"),
+      queue: dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard"),
+    };
+  }, [byId, allIds, deckPath, dueClock]);
 
   const crosswordOnlyDue = dueAllIds.length > 0 && queue.length === 0;
 
