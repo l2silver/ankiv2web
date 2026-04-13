@@ -100,6 +100,11 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   if (created_at !== undefined) card.created_at = created_at;
   if (updated_at !== undefined) card.updated_at = updated_at;
 
+  const content_change_seq = optNumber(raw.content_change_seq);
+  if (content_change_seq !== undefined) {
+    card.content_change_seq = Math.trunc(content_change_seq);
+  }
+
   const interval_days = optNumber(raw.interval_days);
   const ease = optNumber(raw.ease);
   const reps = optNumber(raw.reps);

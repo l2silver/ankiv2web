@@ -42,6 +42,8 @@ export type CardEntity = {
   buried?: boolean;
   created_at?: string;
   updated_at?: string;
+  /** Server-wide monotonic stamp when shareable content last changed (see `POST /cards/changed-since`). */
+  content_change_seq?: number;
   /** Local-only: relearning ladder step after a lapse (not sent to the API). */
   relearn_step?: number;
   dirty?: boolean;

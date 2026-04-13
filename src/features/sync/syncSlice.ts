@@ -5,8 +5,8 @@ import {
   hydrateFromIDB,
   markCardDirtyLocal,
   pullNewCards,
+  pullContentChangesSince,
   pushDirtyCards,
-  refreshCardBodiesFromServer,
 } from "@/features/sync/syncThunks";
 
 type SyncState = {
@@ -57,17 +57,17 @@ const syncSlice = createSlice({
         state.isPulling = false;
         state.lastError = String(action.payload ?? action.error.message ?? "pull failed");
       })
-      .addCase(refreshCardBodiesFromServer.pending, (state) => {
+      .addCase(pullContentChangesSince.pending, (state) => {
         state.isPulling = true;
         state.lastError = null;
       })
-      .addCase(refreshCardBodiesFromServer.fulfilled, (state, action) => {
+      .addCase(pullContentChangesSince.fulfilled, (state, action) => {
         state.isPulling = false;
         if (action.payload.at) state.lastPullAt = action.payload.at;
       })
-      .addCase(refreshCardBodiesFromServer.rejected, (state, action) => {
+      .addCase(pullContentChangesSince.rejected, (state, action) => {
         state.isPulling = false;
-        state.lastError = String(action.payload ?? action.error.message ?? "refresh bodies failed");
+        state.lastError = String(action.payload ?? action.error.message ?? "content sync failed");
       })
       .addCase(pushDirtyCards.pending, (state) => {
         state.isPushing = true;

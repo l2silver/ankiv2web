@@ -39,6 +39,13 @@ export type CardsNewIndexResponse = {
   cards: Record<string, unknown>[];
 };
 
-export type CardsByIdsRequest = {
-  ids: string[];
+export type CardsChangedSinceRequest = {
+  since_sequence: number;
+  after_sequence?: number;
+};
+
+export type CardsChangedSinceResponse = {
+  cards: Record<string, unknown>[];
+  has_more: boolean;
+  next_after_sequence?: number;
 };

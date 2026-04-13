@@ -1,7 +1,8 @@
 import { createAsyncThunk } from "@reduxjs/toolkit";
 
-import { isApiReadyForRequests, isPullAvailable } from "@/lib/api/client";
-import { patchSync, postCardsByIds, postCardsNewIndex } from "@/lib/api/sync";
+import { isApiReadyForRequests, isPullAvailable, isSyncPullMockEnabled } from "@/lib/api/client";
+import { patchSync, postCardsChangedSince, postCardsNewIndex } from "@/lib/api/sync";
+import type { CardsChangedSinceRequest } from "@/lib/api/types";
 import { normalizeServerCard } from "@/lib/cards/normalize";
 import { cardUpdatedAtEpochMs } from "@/lib/cards/updatedAt";
 import { storedCardToSyncPatch } from "@/lib/cards/syncPatch";
@@ -25,6 +26,34 @@ import {
 } from "@/lib/db/cardsDb";
 import { entityToStored, storedToEntity } from "@/lib/db/storedCard";
 
+const CONTENT_SEQ_META_KEY = "contentSyncSinceSequence";
+
+function parseContentSeqMeta(s: string | null | undefined): number {
+  const n = Number.parseInt(s ?? "0", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/** True if the server row should replace the local row (non-dirty); prefers `content_change_seq` then `updated_at`. */
+function serverRowBeatsLocal(prev: StoredCard | undefined, e: CardEntity): boolean {
+  if (!prev) return true;
+  const sSeq = e.content_change_seq ?? 0;
+  const lSeq = prev.content_change_seq ?? 0;
+  if (sSeq !== lSeq) return sSeq > lSeq;
+  const localMs = cardUpdatedAtEpochMs(storedToEntity(prev));
+  const serverMs = cardUpdatedAtEpochMs(e);
+  return serverMs > localMs;
+}
+
+async function idbBumpContentSeqFromMerged(merged: CardEntity[]): Promise<void> {
+  if (merged.length === 0) return;
+  const prev = parseContentSeqMeta(await idbGetMeta(CONTENT_SEQ_META_KEY));
+  const fromCards = merged.reduce<number>(
+    (m, c) => Math.max(m, Math.trunc(c.content_change_seq ?? 0)),
+    0,
+  );
+  await idbSetMeta(CONTENT_SEQ_META_KEY, String(Math.max(prev, fromCards)));
+}
+
 export const clearIndexedDbCards = createAsyncThunk(
   "sync/clearIndexedDbCards",
   async (
@@ -39,6 +68,7 @@ export const clearIndexedDbCards = createAsyncThunk(
       await dispatch(hydrateFromIDB()).unwrap();
       if (canPull) {
         await dispatch(pullNewCards()).unwrap();
+        await dispatch(pullContentChangesSince()).unwrap();
       }
       return { repulled: canPull };
     } catch (e) {
@@ -92,18 +122,15 @@ export const pullNewCards = createAsyncThunk(
           continue;
         }
         const prev = existingById.get(e.id);
-        if (prev) {
-          const localMs = cardUpdatedAtEpochMs(storedToEntity(prev));
-          const serverMs = cardUpdatedAtEpochMs(e);
-          if (localMs >= serverMs) {
-            continue;
-          }
+        if (prev && !serverRowBeatsLocal(prev, e)) {
+          continue;
         }
         toStore.push({ ...e });
         toRedux.push({ ...e, dirty: false });
       }
       if (toStore.length) await idbPutCards(toStore);
       if (toRedux.length) dispatch(upsertMany(toRedux));
+      await idbBumpContentSeqFromMerged(toRedux);
       const at = new Date().toISOString();
       await idbSetMeta("lastPullAt", at);
       return { pulled: toRedux.length, at };
@@ -114,50 +141,59 @@ export const pullNewCards = createAsyncThunk(
 );
 
 /**
- * Fetches full card rows from the server for ids already in IndexedDB (batches of 200).
- * Merges when server `updated_at` is newer than local and the card is not dirty — use after server-side edits
- * to `more_questions` (e.g. Crossword rows), because `pullNewCards` only returns ids **not** already held locally.
+ * Applies server-led content updates via `POST /cards/changed-since` (monotonic `content_change_seq`).
+ * Runs after `pullNewCards` on home load; merge skips dirty cards and uses `content_change_seq` / `updated_at`.
  */
-export const refreshCardBodiesFromServer = createAsyncThunk(
-  "sync/refreshCardBodiesFromServer",
+export const pullContentChangesSince = createAsyncThunk(
+  "sync/pullContentChangesSince",
   async (_, { dispatch, rejectWithValue }) => {
     try {
       if (!isPullAvailable()) {
         throw new Error(
-          "Refresh unavailable: set API URL + key in first-run setup (or NEXT_PUBLIC_API_URL and NEXT_PUBLIC_API_KEY at build time). Pull mock cannot refresh by id.",
+          "Content pull unavailable: set API URL + key in first-run setup (or NEXT_PUBLIC_API_URL and NEXT_PUBLIC_API_KEY at build time), or enable pull mock with NEXT_PUBLIC_USE_SYNC_MOCK=true or npm run dev:mock",
         );
       }
-      const all = await idbGetAllIds();
-      const existing = await idbGetAllCards();
-      const existingById = new Map(existing.map((r) => [r.id, r]));
-      const dirtyIds = new Set(existing.filter((r) => r._dirty).map((r) => r.id));
-      const batchSize = 200;
-      let refreshed = 0;
-      for (let i = 0; i < all.length; i += batchSize) {
-        const chunk = all.slice(i, i + batchSize);
-        const { cards } = await postCardsByIds({ ids: chunk });
+      if (isSyncPullMockEnabled()) {
+        return { pulled: 0, at: null as string | null };
+      }
+      const base = parseContentSeqMeta(await idbGetMeta(CONTENT_SEQ_META_KEY));
+      let afterSeq: number | undefined;
+      let cursorFloor = base;
+      let pulled = 0;
+      for (;;) {
+        const body: CardsChangedSinceRequest =
+          afterSeq !== undefined
+            ? { since_sequence: base, after_sequence: afterSeq }
+            : { since_sequence: base };
+        const res = await postCardsChangedSince(body);
+        const existing = await idbGetAllCards();
+        const existingById = new Map(existing.map((r) => [r.id, r]));
+        const dirtyIds = new Set(existing.filter((r) => r._dirty).map((r) => r.id));
         const toStore: StoredCard[] = [];
         const toRedux: CardEntity[] = [];
-        for (const raw of cards) {
+        for (const raw of res.cards) {
           const e = normalizeServerCard(raw as Record<string, unknown>);
           if (!e) continue;
           if (dirtyIds.has(e.id)) continue;
           const prev = existingById.get(e.id);
-          if (prev) {
-            const localMs = cardUpdatedAtEpochMs(storedToEntity(prev));
-            const serverMs = cardUpdatedAtEpochMs(e);
-            if (serverMs <= localMs) continue;
-          }
+          if (prev && !serverRowBeatsLocal(prev, e)) continue;
           toStore.push({ ...e });
           toRedux.push({ ...e, dirty: false });
-          refreshed += 1;
+          pulled += 1;
         }
         if (toStore.length) await idbPutCards(toStore);
         if (toRedux.length) dispatch(upsertMany(toRedux));
+        if (res.next_after_sequence != null && res.next_after_sequence > 0) {
+          cursorFloor = Math.max(cursorFloor, res.next_after_sequence);
+        }
+        if (!res.has_more) break;
+        if (res.next_after_sequence == null || res.next_after_sequence <= 0) break;
+        afterSeq = res.next_after_sequence;
       }
+      await idbSetMeta(CONTENT_SEQ_META_KEY, String(Math.max(base, cursorFloor)));
       const at = new Date().toISOString();
       await idbSetMeta("lastPullAt", at);
-      return { refreshed, at };
+      return { pulled, at };
     } catch (e) {
       return rejectWithValue(e instanceof Error ? e.message : String(e));
     }
