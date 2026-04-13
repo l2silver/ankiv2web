@@ -33,6 +33,7 @@ import { cardIdFromPlacedWordId } from "@/lib/crossword/wordIdCard";
 import { wordStartNumberByCell } from "@/lib/crossword/wordNumbers";
 import type { CardEntity } from "@/features/cards/cardsSlice";
 import {
+  cardHasPlayableCrossword,
   crosswordQuestionsFromCard,
   resolveCrosswordGradeCardId,
 } from "@/lib/cards/crosswordFromCard";
@@ -41,13 +42,6 @@ import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 type Props = {
   deckPath: string;
 };
-
-function cardHasPlayableCrossword(card: CardEntity): boolean {
-  for (const q of crosswordQuestionsFromCard(card)) {
-    if (normalizeCrosswordAnswer(q.answer ?? "").length >= 2) return true;
-  }
-  return false;
-}
 
 /**
  * Prefer the same due queue as flashcards; if nothing is due in this subtree, fall back to any
@@ -220,12 +214,10 @@ function CrosswordGradeButtons({
   card,
   disabled,
   onGrade,
-  variantType,
 }: {
   card: CardEntity;
   disabled: boolean;
   onGrade: (grade: ReviewGrade) => void;
-  variantType?: string;
 }) {
   const hintNowMs = useMemo(
     () => {
@@ -258,12 +250,6 @@ function CrosswordGradeButtons({
           </button>
         ))}
       </div>
-      {variantType ? (
-        <div className="mt-3 text-[11px] text-zinc-500">
-          <span className="text-zinc-600">Variant type</span>{" "}
-          <span className="font-medium text-zinc-300">{humanizeVariantType(variantType)}</span>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -879,12 +865,21 @@ export function CrosswordGameStudy({ deckPath }: Props) {
             />
           </div>
           {selectedWordFullyFilled && cardForSelectedWord ? (
-            <CrosswordGradeButtons
-              card={cardForSelectedWord}
-              disabled={isGrading}
-              onGrade={submitWordGrade}
-              variantType={selectedWord.variantType}
-            />
+            <>
+              <CrosswordGradeButtons
+                card={cardForSelectedWord}
+                disabled={isGrading}
+                onGrade={submitWordGrade}
+              />
+              {selectedWord.variantType ? (
+                <div className="mt-3 text-right text-[11px] text-zinc-500">
+                  <span className="text-zinc-600">Variant type</span>{" "}
+                  <span className="font-medium text-zinc-300">
+                    {humanizeVariantType(selectedWord.variantType)}
+                  </span>
+                </div>
+              ) : null}
+            </>
           ) : null}
         </section>
       </div>

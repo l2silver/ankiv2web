@@ -1,4 +1,5 @@
 import type { CardEntity, CrosswordQuestion, MoreQuestion } from "@/features/cards/cardsSlice";
+import { normalizeCrosswordAnswer } from "@/lib/crossword/normalizeAnswer";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 
 function sameNote(a: CardEntity, b: CardEntity): boolean {
@@ -74,4 +75,12 @@ export function crosswordQuestionsFromCard(card: CardEntity): CrosswordQuestion[
   if (out.length > 0) return out;
   const legacy = (card as CardEntity & { crossword_questions?: CrosswordQuestion[] }).crossword_questions;
   return legacy ?? [];
+}
+
+/** True when the card has at least one crossword clue whose normalized answer is long enough to place on the grid. */
+export function cardHasPlayableCrossword(card: CardEntity): boolean {
+  for (const q of crosswordQuestionsFromCard(card)) {
+    if (normalizeCrosswordAnswer(q.answer ?? "").length >= 2) return true;
+  }
+  return false;
 }

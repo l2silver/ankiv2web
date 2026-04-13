@@ -232,10 +232,17 @@ export function StudySession({ deckPath }: Props) {
     void dispatch(hydrateFromIDB());
   }, [dispatch]);
 
+  const dueAllIds = useMemo(() => {
+    const nowMs = Date.now();
+    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "all");
+  }, [byId, allIds, deckPath]);
+
   const queue = useMemo(() => {
     const nowMs = Date.now();
     return dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard");
   }, [byId, allIds, deckPath]);
+
+  const crosswordOnlyDue = dueAllIds.length > 0 && queue.length === 0;
 
   /**
    * Due queue is rebuilt from Redux after every grade (cards may drop out). Always take the next
@@ -378,6 +385,27 @@ export function StudySession({ deckPath }: Props) {
               Back to decks
             </Link>
           </>
+        ) : crosswordOnlyDue ? (
+          <>
+            <h1 className="mt-4 text-xl font-semibold text-zinc-100">Study</h1>
+            <p className="mt-2 text-sm text-zinc-400">
+              Deck <code className="text-zinc-300">{deckPath}</code>
+            </p>
+            <p className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-6 text-center text-sm text-zinc-400">
+              You have{" "}
+              <span className="font-medium tabular-nums text-zinc-200">{dueAllIds.length}</span> due card
+              {dueAllIds.length === 1 ? "" : "s"} in this deck tree, but they use the{" "}
+              <span className="text-zinc-300">more questions → crossword</span> layout without flashcard
+              follow-ups, so they do not appear in the flashcard queue. Use{" "}
+              <span className="text-zinc-300">Crossword Game</span> to review them.
+            </p>
+            <Link
+              href={`/study?deck=${encodeURIComponent(deckPath)}&mode=crossword`}
+              className="mt-6 inline-flex rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600"
+            >
+              Open Crossword Game
+            </Link>
+          </>
         ) : (
           <>
             <h1 className="mt-4 text-xl font-semibold text-zinc-100">Study</h1>
@@ -454,14 +482,6 @@ export function StudySession({ deckPath }: Props) {
           </>
         )}
 
-        <div className="mt-6 flex justify-end">
-          <FlashcardVariantBadge
-            noteType={card.note_type}
-            storedCardVariant={card.card_variant}
-            effectiveCardVariant={getEffectiveCardVariant(card)}
-          />
-        </div>
-
         {revealed ? (
           <div className="mt-8">
             <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
@@ -492,6 +512,14 @@ export function StudySession({ deckPath }: Props) {
             ) : null}
           </div>
         ) : null}
+
+        <div className="mt-6 flex justify-end sm:mt-8">
+          <FlashcardVariantBadge
+            noteType={card.note_type}
+            storedCardVariant={card.card_variant}
+            effectiveCardVariant={getEffectiveCardVariant(card)}
+          />
+        </div>
       </article>
     </div>
   );

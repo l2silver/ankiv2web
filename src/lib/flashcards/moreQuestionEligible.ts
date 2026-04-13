@@ -1,6 +1,6 @@
 import type { CardEntity, MoreQuestion } from "@/features/cards/cardsSlice";
 
-import { crosswordQuestionsFromCard } from "@/lib/cards/crosswordFromCard";
+import { cardHasPlayableCrossword } from "@/lib/cards/crosswordFromCard";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 
 /** Flashcard follow-ups only (not crossword grid rows). */
@@ -31,9 +31,9 @@ export function countsInFlashcardStudyQueue(card: CardEntity): boolean {
 
 /**
  * Deck list totals: omit cards that only exist as a broken `more_questions` flashcard with no clues
- * and no crossword content; crossword-only `more_questions` rows still count.
+ * and no playable crossword content (same minimum answer length as the crossword study pipeline).
  */
 export function countsInDeckTreeAggregates(card: CardEntity): boolean {
   if (!isVacantMoreQuestionsFlashcardVariant(card)) return true;
-  return crosswordQuestionsFromCard(card).length > 0;
+  return cardHasPlayableCrossword(card);
 }
