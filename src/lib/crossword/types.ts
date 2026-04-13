@@ -10,6 +10,8 @@ export type PlacedWord = {
   id: string;
   question: string;
   answer: string;
+  /** Optional clue-level variant type (used to choose which variant gets scheduled). */
+  variantType?: string;
   dir: WordDir;
   startR: number;
   startC: number;

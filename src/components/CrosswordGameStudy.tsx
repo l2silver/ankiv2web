@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { hydrateFromIDB, markCardDirtyLocal } from "@/features/sync/syncThunks";
 import { CrosswordBoard } from "@/components/crossword/CrosswordBoard";
+import { CrosswordFlashcardPopup } from "@/components/crossword/CrosswordFlashcardPopup";
 import { CrosswordLetterKeyboard } from "@/components/crossword/CrosswordLetterKeyboard";
 import { buildPuzzle } from "@/lib/crossword/buildPuzzle";
 import {
@@ -96,9 +97,9 @@ function clueInputsFromDueCards(
   byId: Parameters<typeof dueCardIdsForDeck>[0],
   sourceCardIds: string[],
   allIds: readonly string[],
-): { clues: { id: string; question: string; answer: string }[]; answersTruncatedToGridMax: number } {
+): { clues: { id: string; question: string; answer: string; variantType?: string }[]; answersTruncatedToGridMax: number } {
   const seenClue = new Set<string>();
-  const buckets = new Map<string, ClueScratch[]>();
+  const buckets = new Map<string, (ClueScratch & { variantType?: string })[]>();
   const noteKeyOrder: string[] = [];
   let answersTruncatedToGridMax = 0;
 
@@ -118,6 +119,7 @@ function clueInputsFromDueCards(
         byId,
         allIds,
       );
+      const variantType = (q.variantType ?? (q as { variant_type?: string }).variant_type)?.trim() || undefined;
       const question = q.question?.trim() || "(no clue)";
       const dedupeKey = `${gradeId}\t${answer}\t${question}`;
       if (seenClue.has(dedupeKey)) continue;
@@ -128,11 +130,11 @@ function clueInputsFromDueCards(
         buckets.set(noteKey, []);
         noteKeyOrder.push(noteKey);
       }
-      buckets.get(noteKey)!.push({ gradeId, question, answer });
+      buckets.get(noteKey)!.push({ gradeId, question, answer, variantType });
     }
   }
 
-  const out: { id: string; question: string; answer: string }[] = [];
+  const out: { id: string; question: string; answer: string; variantType?: string }[] = [];
   let seq = 0;
   for (;;) {
     let progressed = false;
@@ -140,7 +142,7 @@ function clueInputsFromDueCards(
       const q = buckets.get(nk);
       if (!q || q.length === 0) continue;
       const c = q.shift()!;
-      out.push({ id: `${c.gradeId}::${seq}`, question: c.question, answer: c.answer });
+      out.push({ id: `${c.gradeId}::${seq}`, question: c.question, answer: c.answer, variantType: c.variantType });
       seq += 1;
       progressed = true;
     }
@@ -148,6 +150,31 @@ function clueInputsFromDueCards(
   }
 
   return { clues: out, answersTruncatedToGridMax };
+}
+
+function titleCaseWords(segment: string): string {
+  return segment
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function humanizeVariantType(raw: string): string {
+  const s = raw.trim();
+  if (!s) return "—";
+  if (s.includes("->")) {
+    return s
+      .split("->")
+      .map((part) =>
+        part
+          .split("+")
+          .map((chunk) => titleCaseWords(chunk))
+          .join(" + "),
+      )
+      .join(" → ");
+  }
+  return titleCaseWords(s);
 }
 
 function CrosswordDataDebugPanel({ deckPath, payload }: { deckPath: string; payload: Record<string, unknown> }) {
@@ -193,10 +220,12 @@ function CrosswordGradeButtons({
   card,
   disabled,
   onGrade,
+  variantType,
 }: {
   card: CardEntity;
   disabled: boolean;
   onGrade: (grade: ReviewGrade) => void;
+  variantType?: string;
 }) {
   const hintNowMs = useMemo(
     () => {
@@ -229,6 +258,12 @@ function CrosswordGradeButtons({
           </button>
         ))}
       </div>
+      {variantType ? (
+        <div className="mt-3 text-[11px] text-zinc-500">
+          <span className="text-zinc-600">Variant type</span>{" "}
+          <span className="font-medium text-zinc-300">{humanizeVariantType(variantType)}</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -341,6 +376,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
   const [selectedWordId, setSelectedWordId] = useState<string | null>(null);
   const [isGrading, setIsGrading] = useState(false);
   const [gradedWordIds, setGradedWordIds] = useState(() => new Set<string>());
+  const [showCardPopup, setShowCardPopup] = useState(false);
   /** Set when user tries to grade a full slot that does not match the answer; cleared when they edit that word. */
   const [clueGradeErrorWordId, setClueGradeErrorWordId] = useState<string | null>(null);
 
@@ -532,6 +568,10 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     const cid = cardIdFromPlacedWordId(selectedWordId);
     return cid ? byId[cid] : undefined;
   }, [byId, selectedWordId]);
+
+  useEffect(() => {
+    setShowCardPopup(false);
+  }, [selectedWordId]);
 
   const answerValueForSelected = selectedWordId ? (inputByWord[selectedWordId] ?? "") : "";
 
@@ -807,13 +847,24 @@ export function CrosswordGameStudy({ deckPath }: Props) {
               >
                 {selectedWord.question}
               </p>
-              <button
-                type="button"
-                onClick={onRevealSelectedAnswer}
-                className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:text-sm"
-              >
-                Reveal answer
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {cardForSelectedWord ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowCardPopup(true)}
+                    className="rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:text-sm"
+                  >
+                    View card
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={onRevealSelectedAnswer}
+                  className="rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:text-sm"
+                >
+                  Reveal answer
+                </button>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-zinc-500">Select a word to type.</p>
@@ -828,10 +879,24 @@ export function CrosswordGameStudy({ deckPath }: Props) {
             />
           </div>
           {selectedWordFullyFilled && cardForSelectedWord ? (
-            <CrosswordGradeButtons card={cardForSelectedWord} disabled={isGrading} onGrade={submitWordGrade} />
+            <CrosswordGradeButtons
+              card={cardForSelectedWord}
+              disabled={isGrading}
+              onGrade={submitWordGrade}
+              variantType={selectedWord.variantType}
+            />
           ) : null}
         </section>
       </div>
+
+      {cardForSelectedWord ? (
+        <CrosswordFlashcardPopup
+          open={showCardPopup}
+          card={cardForSelectedWord}
+          title="Flashcard"
+          onClose={() => setShowCardPopup(false)}
+        />
+      ) : null}
 
       <CrosswordDataDebugPanel deckPath={deckPath} payload={crosswordDebugPayload} />
     </div>

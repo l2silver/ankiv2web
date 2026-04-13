@@ -6,6 +6,7 @@ type ClueIn = {
   id: string;
   question: string;
   answer: string;
+  variantType?: string;
 };
 
 function emptyGrid(size: number): MutableCell[][] {
@@ -214,6 +215,7 @@ export function buildPuzzle(clues: ClueIn[]): BuiltPuzzle | null {
       id: first.id,
       question: first.question,
       answer: first.answer,
+      variantType: first.variantType,
       dir: "across",
       startR: mid,
       startC: c0,
@@ -249,6 +251,7 @@ export function buildPuzzle(clues: ClueIn[]): BuiltPuzzle | null {
       id: clue.id,
       question: clue.question,
       answer: clue.answer,
+      variantType: clue.variantType,
       dir,
       startR,
       startC,
