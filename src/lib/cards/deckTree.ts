@@ -1,5 +1,6 @@
 import type { CardEntity } from "@/features/cards/cardsSlice";
 
+import { scheduleNoteKey } from "@/lib/cards/crosswordFromCard";
 import { isCardDueNow } from "@/lib/cards/due";
 import {
   countsInDeckTreeAggregates,
@@ -64,6 +65,16 @@ export function aggregateDeckPaths(
 ): Map<string, DeckPathAggregate> {
   const map = new Map<string, DeckPathAggregate>();
 
+  /** Notes that already have a flashcard-queue row due (avoid double-counting vacant `more_questions` for the same note). */
+  const notesWithFlashDue = new Set<string>();
+  for (const id of allIds) {
+    const c = byId[id];
+    if (!c || !countsInDeckTreeAggregates(c)) continue;
+    if (isCardDueNow(c, nowMs) && countsInFlashcardStudyQueue(c)) {
+      notesWithFlashDue.add(scheduleNoteKey(c));
+    }
+  }
+
   for (const id of allIds) {
     const c = byId[id];
     if (!c) continue;
@@ -76,7 +87,7 @@ export function aggregateDeckPaths(
       const row = map.get(prefix)!;
       row.total++;
       if (cardDue && flashEligible) row.due++;
-      else if (cardDue && !flashEligible) row.dueCrosswordOnly++;
+      else if (cardDue && !flashEligible && !notesWithFlashDue.has(scheduleNoteKey(c))) row.dueCrosswordOnly++;
     }
   }
   return map;

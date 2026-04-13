@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 
-import { hydrateFromIDB, markCardDirtyLocal } from "@/features/sync/syncThunks";
+import { hydrateFromIDB, markFlashcardReviewDeferSiblingDuesLocal } from "@/features/sync/syncThunks";
 import { dueCardIdsForDeck } from "@/lib/cards/deckTree";
 import {
   intervalHintForGrade,
@@ -298,7 +298,7 @@ export function StudySession({ deckPath }: Props) {
       const nowMs = Date.now();
       const fields = scheduleAfterReview(card, grade, nowMs);
       try {
-        await dispatch(markCardDirtyLocal({ id: card.id, fields })).unwrap();
+        await dispatch(markFlashcardReviewDeferSiblingDuesLocal({ gradedId: card.id, fields, nowMs })).unwrap();
         setRevealed(false);
         setAnsweredInSession((n) => n + 1);
       } finally {
@@ -319,8 +319,9 @@ export function StudySession({ deckPath }: Props) {
       const interval_days = daysFromNow;
       try {
         await dispatch(
-          markCardDirtyLocal({
-            id: card.id,
+          markFlashcardReviewDeferSiblingDuesLocal({
+            gradedId: card.id,
+            nowMs,
             fields: {
               due_at,
               interval_days,
@@ -407,10 +408,10 @@ export function StudySession({ deckPath }: Props) {
             <p className="mt-8 rounded-xl border border-zinc-800 bg-zinc-900/40 px-5 py-6 text-center text-sm text-zinc-400">
               You have{" "}
               <span className="font-medium tabular-nums text-zinc-200">{dueAllIds.length}</span> due card
-              {dueAllIds.length === 1 ? "" : "s"} in this deck tree, but they use the{" "}
-              <span className="text-zinc-300">more questions → crossword</span> layout without flashcard
-              follow-ups, so they do not appear in the flashcard queue. Use{" "}
-              <span className="text-zinc-300">Crossword Game</span> to review them.
+              {dueAllIds.length === 1 ? "" : "s"} on <span className="text-zinc-300">more_questions</span> rows with
+              crossword-only content (no flashcard drill follow-ups). Open{" "}
+              <span className="text-zinc-300">Crossword Game</span> to review them; grading applies the same next
+              schedule to every variant of that note, so you will not owe a separate flashcard pass for the same cycle.
             </p>
             <Link
               href={`/study?deck=${encodeURIComponent(deckPath)}&mode=crossword`}

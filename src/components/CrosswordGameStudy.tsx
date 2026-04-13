@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { hydrateFromIDB, markCardDirtyLocal } from "@/features/sync/syncThunks";
+import { hydrateFromIDB, markScheduleAcrossNoteVariantsLocal } from "@/features/sync/syncThunks";
 import { CrosswordBoard } from "@/components/crossword/CrosswordBoard";
 import { CrosswordFlashcardPopup } from "@/components/crossword/CrosswordFlashcardPopup";
 import { CrosswordLetterKeyboard } from "@/components/crossword/CrosswordLetterKeyboard";
@@ -223,7 +223,7 @@ function CrosswordGradeButtons({
     () => {
       return Date.now();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh interval hints after `markCardDirtyLocal` bumps `updated_at`
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh interval hints after schedule writes bump `updated_at`
     [card.updated_at],
   );
 
@@ -585,7 +585,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       const nowMs = Date.now();
       const fields = scheduleAfterReview(card, grade, nowMs);
       try {
-        await dispatch(markCardDirtyLocal({ id: card.id, fields })).unwrap();
+        await dispatch(markScheduleAcrossNoteVariantsLocal({ gradedId: card.id, fields })).unwrap();
         const wid = selectedWordId;
         const gradedCid = cid;
         setGradedWordIds((prev) => {

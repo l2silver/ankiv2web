@@ -3,6 +3,12 @@ import type { CardEntity, MoreQuestion } from "@/features/cards/cardsSlice";
 import { cardHasPlayableCrossword } from "@/lib/cards/crosswordFromCard";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 
+/*
+ * Vacant `more_questions` rows (crossword-only) are skipped in the flashcard queue; after each review,
+ * Crossword grading uses `markScheduleAcrossNoteVariantsLocal` (full schedule on every variant).
+ * Flashcard grading uses `markFlashcardReviewDeferSiblingDuesLocal` (graded variant only + sibling due deferral).
+ */
+
 /** Flashcard follow-ups only (not crossword grid rows). */
 export function eligibleFlashcardMoreQuestions(card: CardEntity): MoreQuestion[] {
   const mq = card.more_questions;

@@ -2,13 +2,44 @@ import type { CardEntity, CrosswordQuestion, MoreQuestion } from "@/features/car
 import { normalizeCrosswordAnswer } from "@/lib/crossword/normalizeAnswer";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 
-function sameNote(a: CardEntity, b: CardEntity): boolean {
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Pushes a card's next due at least one day later than both "now" and its current due.
+ * Used when another variant of the same note was just reviewed so siblings do not stay in the same session.
+ */
+export function deferDueByOneDay(dueIso: string | undefined, nowMs: number): string {
+  const raw = dueIso?.trim() ?? "";
+  const parsed = raw ? Date.parse(raw) : NaN;
+  const base = Number.isFinite(parsed) ? Math.max(parsed, nowMs) : nowMs;
+  return new Date(base + MS_PER_DAY).toISOString();
+}
+
+/** Same logical note (all variant rows share deck + main fields). */
+export function sameNote(a: CardEntity, b: CardEntity): boolean {
   return (
     (a.deck_id ?? "") === (b.deck_id ?? "") &&
     (a.front ?? "") === (b.front ?? "") &&
     (a.back ?? "") === (b.back ?? "") &&
     (a.context ?? "") === (b.context ?? "")
   );
+}
+
+/** All card ids in the store that are variant siblings of `anchor` (including `anchor.id`). */
+export function noteVariantCardIds(
+  anchor: CardEntity,
+  byId: Record<string, CardEntity>,
+  allIds: readonly string[],
+): string[] {
+  return allIds.filter((id) => {
+    const c = byId[id];
+    return c && sameNote(anchor, c);
+  });
+}
+
+/** Stable key for “one note” across variant rows (matches `sameNote` identity). */
+export function scheduleNoteKey(c: CardEntity): string {
+  return JSON.stringify([c.deck_id ?? "", c.front ?? "", c.back ?? "", c.context ?? ""]);
 }
 
 /**

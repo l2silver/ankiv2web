@@ -12,8 +12,8 @@ function dueButtonLabel(node: DeckTreeNode): string {
   const { due, dueCrosswordOnly } = node;
   if (due === 0 && dueCrosswordOnly === 0) return "0 due";
   if (dueCrosswordOnly === 0) return `${due} due`;
-  if (due === 0) return `${dueCrosswordOnly} crossword due`;
-  return `${due} + ${dueCrosswordOnly} crossword due`;
+  if (due === 0) return `${dueCrosswordOnly} more_questions-only`;
+  return `${due} + ${dueCrosswordOnly} more_questions-only`;
 }
 
 function dueButtonTitle(node: DeckTreeNode): string {
@@ -21,9 +21,11 @@ function dueButtonTitle(node: DeckTreeNode): string {
   if (n === 0) return "Nothing due in this deck (including subdecks)";
   const parts = [
     node.due > 0 ? `${node.due} flashcard` : null,
-    node.dueCrosswordOnly > 0 ? `${node.dueCrosswordOnly} crossword-only` : null,
+    node.dueCrosswordOnly > 0 ? `${node.dueCrosswordOnly} more_questions-only (crossword)` : null,
   ].filter(Boolean);
-  return `Choose study mode (${parts.join(", ")} due in this deck tree)`;
+  const base = `Choose study mode (${parts.join(", ")} due in this deck tree)`;
+  if (node.dueCrosswordOnly === 0) return base;
+  return base + " — more_questions-only: no drill variant is due for that note, but a crossword row still is.";
 }
 
 /** Extra left padding per nesting level so hierarchy is obvious. */

@@ -4,6 +4,8 @@ import {
   clearIndexedDbCards,
   hydrateFromIDB,
   markCardDirtyLocal,
+  markFlashcardReviewDeferSiblingDuesLocal,
+  markScheduleAcrossNoteVariantsLocal,
   pullNewCards,
   pullContentChangesSince,
   pushDirtyCards,
@@ -83,6 +85,12 @@ const syncSlice = createSlice({
       })
       .addCase(markCardDirtyLocal.rejected, (state, action) => {
         state.lastError = String(action.payload ?? action.error.message ?? "local edit failed");
+      })
+      .addCase(markScheduleAcrossNoteVariantsLocal.rejected, (state, action) => {
+        state.lastError = String(action.payload ?? action.error.message ?? "local schedule sync failed");
+      })
+      .addCase(markFlashcardReviewDeferSiblingDuesLocal.rejected, (state, action) => {
+        state.lastError = String(action.payload ?? action.error.message ?? "flashcard review save failed");
       })
       .addCase(clearIndexedDbCards.pending, (state) => {
         state.lastError = null;

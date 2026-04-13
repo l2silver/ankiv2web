@@ -106,11 +106,14 @@ export function HomePage() {
           <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">Decks</h2>
           <p className="mt-1 text-sm text-zinc-500">
             Nested decks use <code className="text-zinc-600">{NESTED_DECK_SEPARATOR}</code> in{" "}
-            <code className="text-zinc-600">deck_id</code> (Anki-style). Deeper rows are indented; subdecks sit
-            under a vertical bar.             Counts roll up to parents. The first number is flashcard due (matches the flashcard queue); a{" "}
-            <span className="text-zinc-400">crossword due</span> suffix counts cards that only appear in crossword
-            study. <code className="text-zinc-600">due_at</code> ≤ now, not suspended, not buried; counts refresh about
-            every minute. Tap the due control when it is active to open study and choose Flashcards or Crossword Game.
+            <code className="text-zinc-600">deck_id</code> (Anki-style). Deeper rows are indented; subdecks sit under a
+            vertical bar; counts roll up to parents. Each variant is its own row in storage, but{" "}
+            <strong className="font-medium text-zinc-400">grading in flashcards or crossword</strong> updates the same
+            schedule for every variant of that note, so one mode satisfies the other until the next due date. The first
+            due number matches the flashcard queue; <span className="text-zinc-400">more_questions-only</span> only
+            appears when no drill variant is due but a crossword-only row still is (usually stale data before the next
+            review syncs it). <code className="text-zinc-600">due_at</code> ≤ now, not suspended, not buried; counts
+            refresh about every minute.
           </p>
 
           {deckRoots.length === 0 ? (

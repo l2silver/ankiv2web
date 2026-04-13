@@ -3,6 +3,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 import { isApiReadyForRequests, isPullAvailable, isSyncPullMockEnabled } from "@/lib/api/client";
 import { patchSync, postCardsChangedSince, postCardsNewIndex } from "@/lib/api/sync";
 import type { CardsChangedSinceRequest } from "@/lib/api/types";
+import { deferDueByOneDay, noteVariantCardIds } from "@/lib/cards/crosswordFromCard";
 import { normalizeServerCard } from "@/lib/cards/normalize";
 import { cardUpdatedAtEpochMs } from "@/lib/cards/updatedAt";
 import { storedCardToSyncPatch } from "@/lib/cards/syncPatch";
@@ -13,6 +14,9 @@ import {
   upsertMany,
   type CardEntity,
 } from "@/features/cards/cardsSlice";
+type CardSchedulePatch = Partial<Omit<CardEntity, "id" | "dirty">>;
+
+type CardsSlicePick = { cards: { byId: Record<string, CardEntity>; allIds: string[] } };
 import {
   idbClearDirtyMany,
   idbDeleteEntireDatabase,
@@ -258,6 +262,59 @@ export const markCardDirtyLocal = createAsyncThunk(
       await idbPutCard(stored);
       dispatch(upsertMany([storedToEntity(stored)]));
       return arg.id;
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
+/**
+ * After a crossword review, apply the same scheduling fields to every variant row for the same note
+ * (`deck_id` + main fields) so crossword and flashcard-style rows stay on one schedule.
+ */
+export const markScheduleAcrossNoteVariantsLocal = createAsyncThunk(
+  "sync/markScheduleAcrossNoteVariantsLocal",
+  async (arg: { gradedId: string; fields: CardSchedulePatch }, { dispatch, getState, rejectWithValue }) => {
+    try {
+      const state = getState() as CardsSlicePick;
+      const anchor = state.cards.byId[arg.gradedId];
+      if (!anchor) throw new Error(`graded card ${arg.gradedId} not in store`);
+      const ids = noteVariantCardIds(anchor, state.cards.byId, state.cards.allIds);
+      for (const id of ids) {
+        await dispatch(markCardDirtyLocal({ id, fields: arg.fields })).unwrap();
+      }
+      return ids;
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
+/**
+ * After a flashcard review: apply full scheduling to the graded variant only; bump each sibling
+ * variant's `due_at` by one day so one review clears related cards from the current session without
+ * copying interval/ease onto every variant.
+ */
+export const markFlashcardReviewDeferSiblingDuesLocal = createAsyncThunk(
+  "sync/markFlashcardReviewDeferSiblingDuesLocal",
+  async (
+    arg: { gradedId: string; fields: CardSchedulePatch; nowMs?: number },
+    { dispatch, getState, rejectWithValue },
+  ) => {
+    try {
+      const nowMs = arg.nowMs ?? Date.now();
+      const state = getState() as CardsSlicePick;
+      const anchor = state.cards.byId[arg.gradedId];
+      if (!anchor) throw new Error(`graded card ${arg.gradedId} not in store`);
+      const ids = noteVariantCardIds(anchor, state.cards.byId, state.cards.allIds);
+      await dispatch(markCardDirtyLocal({ id: arg.gradedId, fields: arg.fields })).unwrap();
+      for (const id of ids) {
+        if (id === arg.gradedId) continue;
+        const sib = state.cards.byId[id];
+        const due_at = deferDueByOneDay(sib?.due_at, nowMs);
+        await dispatch(markCardDirtyLocal({ id, fields: { due_at } })).unwrap();
+      }
+      return ids;
     } catch (e) {
       return rejectWithValue(e instanceof Error ? e.message : String(e));
     }
