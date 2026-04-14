@@ -918,19 +918,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           )}
           {selectedWordFullyFilled && cardForSelectedWord && selectedWord ? (
             <>
-              <CrosswordGradeButtons
-                card={cardForSelectedWord}
-                disabled={isGrading}
-                onGrade={submitWordGrade}
-              />
-              {selectedWord.variantType ? (
-                <div className="mt-3 text-right text-[11px] text-zinc-500">
-                  <span className="text-zinc-600">Variant type</span>{" "}
-                  <span className="font-medium text-zinc-300">
-                    {humanizeVariantType(selectedWord.variantType)}
-                  </span>
-                </div>
-              ) : null}
+              {/* Grade buttons are rendered between slots and the keyboard for better thumb reach. */}
             </>
           ) : null}
           <div className="mt-4">
@@ -940,6 +928,21 @@ export function CrosswordGameStudy({ deckPath }: Props) {
               disabled={!selectedWord}
               onValueChange={onChangeSelectedAnswer}
               selectionKey={selectedWordId ?? ""}
+              betweenSlotsAndKeys={
+                selectedWordFullyFilled && cardForSelectedWord && selectedWord ? (
+                  <>
+                    <CrosswordGradeButtons card={cardForSelectedWord} disabled={isGrading} onGrade={submitWordGrade} />
+                    {selectedWord.variantType ? (
+                      <div className="mt-3 text-right text-[11px] text-zinc-500">
+                        <span className="text-zinc-600">Variant type</span>{" "}
+                        <span className="font-medium text-zinc-300">
+                          {humanizeVariantType(selectedWord.variantType)}
+                        </span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null
+              }
             />
           </div>
         </section>

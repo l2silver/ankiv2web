@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { toSlotString } from "@/lib/crossword/normalizeAnswer";
 
@@ -36,6 +36,8 @@ type Props = {
   /** When this changes (e.g. selected word id), cursor resets to the first empty cell. */
   selectionKey: string;
   idPrefix?: string;
+  /** Optional content between the answer slots and the key rows. */
+  betweenSlotsAndKeys?: ReactNode;
 };
 
 const keyBtn =
@@ -53,6 +55,7 @@ export function CrosswordLetterKeyboard({
   onValueChange,
   selectionKey,
   idPrefix = "cw-keyboard",
+  betweenSlotsAndKeys,
 }: Props) {
   const canType = !disabled && slotCount > 0;
   const slotStr = toSlotString(value, slotCount);
@@ -183,6 +186,8 @@ export function CrosswordLetterKeyboard({
           })
         )}
       </div>
+
+      {betweenSlotsAndKeys ? <div>{betweenSlotsAndKeys}</div> : null}
 
       <div role="group" aria-label="Letter keyboard" className="space-y-2">
         {ROWS.map((row, ri) => (
