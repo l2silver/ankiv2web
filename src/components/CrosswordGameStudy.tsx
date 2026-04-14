@@ -450,7 +450,15 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     return puzzle.words.every((w) => isCrosswordSlotComplete(inputByWord[w.id] ?? "", w.answer.length));
   }, [puzzle, inputByWord]);
 
-  if (puzzle && !allWordsFilled) {
+  const allWordsGraded = useMemo(() => {
+    if (!puzzle || puzzle.words.length === 0) return false;
+    return puzzle.words.every((w) => gradedWordIds.has(w.id));
+  }, [puzzle, gradedWordIds]);
+
+  /** Filled grid is not enough: each word must be graded (scheduler / due date) before the session ends. */
+  const puzzleSessionComplete = allWordsFilled && allWordsGraded;
+
+  if (puzzle && !puzzleSessionComplete) {
     persistSnapshotRef.current = {
       deckPath,
       puzzle,
@@ -465,11 +473,11 @@ export function CrosswordGameStudy({ deckPath }: Props) {
   }
 
   useEffect(() => {
-    if (allWordsFilled) clearCrosswordDraft(deckPath);
-  }, [allWordsFilled, deckPath]);
+    if (puzzleSessionComplete) clearCrosswordDraft(deckPath);
+  }, [puzzleSessionComplete, deckPath]);
 
   useEffect(() => {
-    if (!puzzle || allWordsFilled) {
+    if (!puzzle || puzzleSessionComplete) {
       if (draftSaveTimerRef.current) {
         clearTimeout(draftSaveTimerRef.current);
         draftSaveTimerRef.current = null;
@@ -497,7 +505,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         draftSaveTimerRef.current = null;
       }
     };
-  }, [puzzle, deckPath, inputByWord, view, blindMode, selectedWordId, gradedWordIds, allWordsFilled]);
+  }, [puzzle, deckPath, inputByWord, view, blindMode, selectedWordId, gradedWordIds, puzzleSessionComplete]);
 
   useEffect(() => {
     const flush = () => {
@@ -710,7 +718,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     );
   }
 
-  if (allWordsFilled) {
+  if (puzzleSessionComplete) {
     return (
       <div className="mx-auto max-w-2xl">
         <p className="text-sm text-zinc-500">
@@ -720,10 +728,11 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         </p>
         <h1 className="mt-4 text-xl font-semibold text-zinc-100">Crossword</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          You&apos;ve filled every word in this grid for <code className="text-zinc-300">{deckPath}</code>.
+          You&apos;ve filled every word and set the next due for each clue in this grid for{" "}
+          <code className="text-zinc-300">{deckPath}</code>.
         </p>
         <p className="mt-6 text-xs text-zinc-600">
-          Rate clues with Again / Hard / Good / Easy while you play to update scheduling; sync matches the rest of the
+          Again / Hard / Good / Easy on each full word updates scheduling for that note; sync matches the rest of the
           app.
         </p>
         <Link
