@@ -27,20 +27,29 @@ function cloneGrid(g: MutableCell[][]): MutableCell[][] {
   return g.map((row) => row.map((c) => ({ ...c })));
 }
 
-function placeAcross(
+function placeAcrossWrapped(
   grid: MutableCell[][],
   wordId: string,
   answer: string,
   r: number,
   c0: number,
+  requireAttachment: boolean,
 ): MutableCell[][] | null {
   const len = answer.length;
-  if (c0 < 0 || c0 + len > CROSSWORD_MAX || r < 0 || r >= CROSSWORD_MAX) return null;
+  if (len < 1) return null;
+  if (r < 0 || r >= CROSSWORD_MAX) return null;
+  if (c0 < 0 || c0 >= CROSSWORD_MAX) return null;
+  const lastIndex = c0 + (len - 1);
+  const rEnd = r + Math.floor(lastIndex / CROSSWORD_MAX);
+  if (rEnd >= CROSSWORD_MAX) return null;
   const next = cloneGrid(grid);
+  let attachments = 0;
   for (let j = 0; j < len; j++) {
-    const c = c0 + j;
+    const idx = c0 + j;
+    const rr = r + Math.floor(idx / CROSSWORD_MAX);
+    const c = idx % CROSSWORD_MAX;
     const ch = answer[j]!;
-    const cell = next[r]![c]!;
+    const cell = next[rr]![c]!;
     if (cell.isBlock) {
       cell.isBlock = false;
       cell.letterAcross = ch;
@@ -54,6 +63,7 @@ function placeAcross(
     }
     if (cell.letterDown !== null) {
       if (cell.letterDown === ch) return null;
+      attachments += 1;
       cell.letterAcross = ch;
       cell.acrossWordId = wordId;
       cell.acrossOffset = j;
@@ -63,23 +73,33 @@ function placeAcross(
     cell.acrossWordId = wordId;
     cell.acrossOffset = j;
   }
+  if (requireAttachment && attachments === 0) return null;
   return next;
 }
 
-function placeDown(
+function placeDownWrapped(
   grid: MutableCell[][],
   wordId: string,
   answer: string,
   r0: number,
   c: number,
+  requireAttachment: boolean,
 ): MutableCell[][] | null {
   const len = answer.length;
-  if (r0 < 0 || r0 + len > CROSSWORD_MAX || c < 0 || c >= CROSSWORD_MAX) return null;
+  if (len < 1) return null;
+  if (c < 0 || c >= CROSSWORD_MAX) return null;
+  if (r0 < 0 || r0 >= CROSSWORD_MAX) return null;
+  const lastIndex = r0 + (len - 1);
+  const cEnd = c + Math.floor(lastIndex / CROSSWORD_MAX);
+  if (cEnd >= CROSSWORD_MAX) return null;
   const next = cloneGrid(grid);
+  let attachments = 0;
   for (let j = 0; j < len; j++) {
-    const r = r0 + j;
+    const idx = r0 + j;
+    const r = idx % CROSSWORD_MAX;
+    const cc = c + Math.floor(idx / CROSSWORD_MAX);
     const ch = answer[j]!;
-    const cell = next[r]![c]!;
+    const cell = next[r]![cc]!;
     if (cell.isBlock) {
       cell.isBlock = false;
       cell.letterDown = ch;
@@ -93,6 +113,7 @@ function placeDown(
     }
     if (cell.letterAcross !== null) {
       if (cell.letterAcross === ch) return null;
+      attachments += 1;
       cell.letterDown = ch;
       cell.downWordId = wordId;
       cell.downOffset = j;
@@ -102,6 +123,7 @@ function placeDown(
     cell.downWordId = wordId;
     cell.downOffset = j;
   }
+  if (requireAttachment && attachments === 0) return null;
   return next;
 }
 
@@ -114,40 +136,16 @@ function tryAttachWord(
   const len = answer.length;
   if (len < 2) return null;
 
-  const candidates: MutableCell[][][] = [];
-
   for (let r = 0; r < CROSSWORD_MAX; r++) {
     for (let c = 0; c < CROSSWORD_MAX; c++) {
-      const cell = grid[r]![c]!;
-      if (cell.isBlock) continue;
-
-      if (dir === "down") {
-        if (cell.letterAcross === null || cell.acrossWordId === null) continue;
-        if (cell.letterDown !== null) continue;
-        const ca = cell.letterAcross;
-        for (let m = 0; m < len; m++) {
-          const ch = answer[m]!;
-          if (ch === ca) continue;
-          const r0 = r - m;
-          const placed = placeDown(grid, wordId, answer, r0, c);
-          if (placed) candidates.push(placed);
-        }
-      } else {
-        if (cell.letterDown === null || cell.downWordId === null) continue;
-        if (cell.letterAcross !== null) continue;
-        const cd = cell.letterDown;
-        for (let m = 0; m < len; m++) {
-          const ch = answer[m]!;
-          if (ch === cd) continue;
-          const c0 = c - m;
-          const placed = placeAcross(grid, wordId, answer, r, c0);
-          if (placed) candidates.push(placed);
-        }
-      }
+      const placed =
+        dir === "across"
+          ? placeAcrossWrapped(grid, wordId, answer, r, c, true)
+          : placeDownWrapped(grid, wordId, answer, r, c, true);
+      if (placed) return placed;
     }
   }
-
-  return candidates[0] ?? null;
+  return null;
 }
 
 function boundingBox(grid: MutableCell[][]) {
@@ -197,16 +195,16 @@ function rebaseWords(words: PlacedWord[], minR: number, minC: number): PlacedWor
  * First clue is across, centered; further clues alternate down/across and attach with a mismatched crossing.
  */
 export function buildPuzzle(clues: ClueIn[]): BuiltPuzzle | null {
-  const usable = clues.filter(
-    (x) => x.answer.length >= 2 && x.answer.length <= CROSSWORD_MAX,
-  );
+  const maxCells = CROSSWORD_MAX * CROSSWORD_MAX;
+  const usable = clues.filter((x) => x.answer.length >= 2 && x.answer.length <= maxCells);
   if (usable.length === 0) return null;
 
   const first = usable[0]!;
-  const mid = Math.floor(CROSSWORD_MAX / 2);
-  const c0 = Math.max(0, mid - Math.floor(first.answer.length / 2));
+  const rowsNeeded = Math.ceil(first.answer.length / CROSSWORD_MAX);
+  const r0 = Math.max(0, Math.floor((CROSSWORD_MAX - rowsNeeded) / 2));
+  const c0 = 0;
   let grid = emptyGrid(CROSSWORD_MAX);
-  const placed = placeAcross(grid, first.id, first.answer, mid, c0);
+  const placed = placeAcrossWrapped(grid, first.id, first.answer, r0, c0, false);
   if (!placed) return null;
   grid = placed;
 
@@ -217,7 +215,7 @@ export function buildPuzzle(clues: ClueIn[]): BuiltPuzzle | null {
       answer: first.answer,
       variantType: first.variantType,
       dir: "across",
-      startR: mid,
+      startR: r0,
       startC: c0,
     },
   ];

@@ -91,11 +91,12 @@ function clueInputsFromDueCards(
   byId: Parameters<typeof dueCardIdsForDeck>[0],
   sourceCardIds: string[],
   allIds: readonly string[],
-): { clues: { id: string; question: string; answer: string; variantType?: string }[]; answersTruncatedToGridMax: number } {
+): { clues: { id: string; question: string; answer: string; variantType?: string }[]; answersExcludedTooLong: number } {
   const seenClue = new Set<string>();
   const buckets = new Map<string, (ClueScratch & { variantType?: string })[]>();
   const noteKeyOrder: string[] = [];
-  let answersTruncatedToGridMax = 0;
+  let answersExcludedTooLong = 0;
+  const MAX_ANSWER_LEN = CROSSWORD_MAX * CROSSWORD_MAX;
 
   for (const cardId of sourceCardIds) {
     const card = byId[cardId];
@@ -105,8 +106,11 @@ function clueInputsFromDueCards(
     for (const q of cq) {
       const full = normalizeCrosswordAnswer(q.answer ?? "");
       if (full.length < 2) continue;
-      if (full.length > CROSSWORD_MAX) answersTruncatedToGridMax += 1;
-      const answer = full.slice(0, CROSSWORD_MAX);
+      if (full.length > MAX_ANSWER_LEN) {
+        answersExcludedTooLong += 1;
+        continue;
+      }
+      const answer = full;
       const gradeId = resolveCrosswordGradeCardId(
         card,
         q.variantType ?? (q as { variant_type?: string }).variant_type,
@@ -143,7 +147,7 @@ function clueInputsFromDueCards(
     if (!progressed) break;
   }
 
-  return { clues: out, answersTruncatedToGridMax };
+  return { clues: out, answersExcludedTooLong };
 }
 
 function titleCaseWords(segment: string): string {
@@ -294,7 +298,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
   const sourceCardIds = frozenSourcePack?.sourceCardIds ?? liveSourcePack.sourceCardIds;
   const usingNotDueFallback = frozenSourcePack?.usingNotDueFallback ?? liveSourcePack.usingNotDueFallback;
 
-  const { clues: flatClues, answersTruncatedToGridMax } = useMemo(
+  const { clues: flatClues, answersExcludedTooLong } = useMemo(
     () => clueInputsFromDueCards(byId, sourceCardIds, allIds),
     [byId, sourceCardIds, allIds],
   );
@@ -356,8 +360,8 @@ export function CrosswordGameStudy({ deckPath }: Props) {
               raw_answer: q.answer,
               normalized_full: norm,
               normalized_full_length: norm.length,
-              grid_answer_used: norm.slice(0, CROSSWORD_MAX),
-              grid_answer_length: Math.min(norm.length, CROSSWORD_MAX),
+              grid_answer_used: norm,
+              grid_answer_length: norm.length,
               variantType: q.variantType,
             };
           }),
@@ -372,11 +376,11 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       source_card_ids_count: sourceCardIds.length,
       source_card_ids_first_12: sourceCardIds.slice(0, 12),
       flat_clues_after_pipeline_count: flatClues.length,
-      clues_truncated_to_first_15_letters: answersTruncatedToGridMax,
+      clues_excluded_too_long_for_15x15_wrap: answersExcludedTooLong,
       flat_clues_preview_first_5: flatClues.slice(0, 5),
       first_card_in_path_with_more_questions: sample,
     };
-  }, [allIds, byId, deckDebug, deckPath, flatClues, answersTruncatedToGridMax, sourceCardIds, usingNotDueFallback]);
+  }, [allIds, byId, deckDebug, deckPath, flatClues, answersExcludedTooLong, sourceCardIds, usingNotDueFallback]);
 
   const puzzle = useMemo(() => buildPuzzle(flatClues), [flatClues]);
 
@@ -589,6 +593,11 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     return cid ? byId[cid] : undefined;
   }, [byId, selectedWordId]);
 
+  const deckLabelForSelected = useMemo(() => {
+    const raw = cardForSelectedWord?.deck_id?.trim();
+    return raw ? raw : "(no deck)";
+  }, [cardForSelectedWord]);
+
   useEffect(() => {
     setShowCardPopup(false);
   }, [selectedWordId]);
@@ -713,8 +722,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           No playable clues from the selected cards: each Crossword row needs{" "}
           <code className="rounded bg-zinc-900 px-1 text-zinc-300">question</code> and{" "}
           <code className="rounded bg-zinc-900 px-1 text-zinc-300">answer</code>. After normalization (a–z only), the
-          answer must normalize to at least 2 letters (a–z). Answers longer than {CROSSWORD_MAX} letters are truncated
-          to the first {CROSSWORD_MAX} for the grid (the on-screen cap is {CROSSWORD_MAX}×{CROSSWORD_MAX}).
+          answer must normalize to at least 2 letters (a–z).
         </p>
         <p className="mt-4 text-xs leading-relaxed text-zinc-600">
           {deckDebug.dueInDeck > 0 && flatClues.length === 0 ? (
@@ -847,7 +855,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         <section>
           <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Grid</h2>
           <p className="mt-1 max-w-sm text-xs text-zinc-600">
-            Max {puzzle.size}×{puzzle.size} (cap 15×15). Click a square for the current view ({view}).
+            Max {puzzle.size}×{puzzle.size} (cap 15×15). Long answers wrap in-grid. Click a square for the current view ({view}).
             {blindMode
               ? " Blind mode: only letters you type in the active direction appear in that view."
               : " Rose letters = provisional crossing hints from the perpendicular direction."}
@@ -872,15 +880,20 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         <section className="min-w-0 flex-1">
           {selectedWord ? (
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-              <p
-                className={`min-w-0 flex-1 text-sm leading-snug ${
-                  clueGradeErrorWordId === selectedWord.id
-                    ? "font-medium text-rose-400"
-                    : "text-zinc-300"
-                }`}
-              >
-                {selectedWord.question}
-              </p>
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 truncate text-[11px] text-zinc-500" title={deckLabelForSelected}>
+                  <span className="text-zinc-600">Deck</span> <span className="text-zinc-400">{deckLabelForSelected}</span>
+                </p>
+                <p
+                  className={`min-w-0 text-sm leading-snug ${
+                    clueGradeErrorWordId === selectedWord.id
+                      ? "font-medium text-rose-400"
+                      : "text-zinc-300"
+                  }`}
+                >
+                  {selectedWord.question}
+                </p>
+              </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 {cardForSelectedWord ? (
                   <button

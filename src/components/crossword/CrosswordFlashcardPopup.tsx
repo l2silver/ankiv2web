@@ -57,6 +57,10 @@ export function CrosswordFlashcardPopup({
             <p id={headingId} className="truncate text-sm font-semibold text-zinc-100">
               {title || "Card preview"}
             </p>
+            <p className="mt-1 truncate text-[11px] text-zinc-500" title={card.deck_id?.trim() ? card.deck_id.trim() : ""}>
+              <span className="text-zinc-600">Deck</span>{" "}
+              <span className="text-zinc-400">{card.deck_id?.trim() ? card.deck_id.trim() : "(no deck)"}</span>
+            </p>
             <p id={descId} className="mt-1 text-xs text-zinc-500">
               Press <span className="text-zinc-400">Esc</span> to close.
             </p>

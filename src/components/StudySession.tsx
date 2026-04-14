@@ -474,6 +474,10 @@ export function StudySession({ deckPath }: Props) {
         className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 shadow-lg sm:p-8"
         aria-live="polite"
       >
+        <p className="truncate text-[11px] text-zinc-500" title={card.deck_id?.trim() ? card.deck_id.trim() : ""}>
+          <span className="text-zinc-600">Deck</span>{" "}
+          <span className="text-zinc-400">{card.deck_id?.trim() ? card.deck_id.trim() : "(no deck)"}</span>
+        </p>
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Question</p>
         <div className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">{faces.front}</div>
 
