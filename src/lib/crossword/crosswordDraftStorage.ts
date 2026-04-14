@@ -13,7 +13,22 @@ export type CrosswordDraftV1 = {
   savedAt: number;
 };
 
-type DraftStore = Record<string, CrosswordDraftV1>;
+export type CrosswordDraftV2 = {
+  v: 2;
+  /** Deck card-id snapshot used to build the puzzle inputs (stabilizes refresh). */
+  sourceCardIds: string[];
+  fingerprint: string;
+  slots: Record<string, string>;
+  view: CrosswordView;
+  blindMode: boolean;
+  selectedKey: string | null;
+  gradedKeys: string[];
+  savedAt: number;
+};
+
+export type CrosswordDraft = CrosswordDraftV1 | CrosswordDraftV2;
+
+type DraftStore = Record<string, CrosswordDraft>;
 
 function isBrowser(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -57,7 +72,15 @@ export function loadCrosswordDraft(deckPath: string): CrosswordDraftV1 | null {
   return d;
 }
 
-export function saveCrosswordDraft(deckPath: string, draft: CrosswordDraftV1): void {
+export function loadCrosswordDraftAny(deckPath: string): CrosswordDraft | null {
+  const store = readStore();
+  const d = store[deckPath];
+  if (!d) return null;
+  if (d.v !== 1 && d.v !== 2) return null;
+  return d;
+}
+
+export function saveCrosswordDraft(deckPath: string, draft: CrosswordDraft): void {
   const store = readStore();
   store[deckPath] = draft;
   writeStore(store);
@@ -72,13 +95,14 @@ export function clearCrosswordDraft(deckPath: string): void {
 
 export function buildCrosswordDraft(params: {
   puzzle: BuiltPuzzle;
+  sourceCardIds: readonly string[];
   inputByWord: Record<string, string>;
   view: CrosswordView;
   blindMode: boolean;
   selectedWordId: string | null;
   gradedWordIds: Set<string>;
-}): CrosswordDraftV1 {
-  const { puzzle, inputByWord, view, blindMode, selectedWordId, gradedWordIds } = params;
+}): CrosswordDraftV2 {
+  const { puzzle, sourceCardIds, inputByWord, view, blindMode, selectedWordId, gradedWordIds } = params;
   const slots: Record<string, string> = {};
   for (const w of puzzle.words) {
     slots[wordRestoreKey(w)] = inputByWord[w.id] ?? ".".repeat(w.answer.length);
@@ -86,7 +110,8 @@ export function buildCrosswordDraft(params: {
   const gradedKeys = puzzle.words.filter((w) => gradedWordIds.has(w.id)).map(wordRestoreKey);
   const selectedW = selectedWordId ? puzzle.words.find((w) => w.id === selectedWordId) : undefined;
   return {
-    v: 1,
+    v: 2,
+    sourceCardIds: [...sourceCardIds],
     fingerprint: puzzleFingerprint(puzzle.words),
     slots,
     view,

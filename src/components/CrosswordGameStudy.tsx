@@ -16,7 +16,7 @@ import {
 import {
   buildCrosswordDraft,
   clearCrosswordDraft,
-  loadCrosswordDraft,
+  loadCrosswordDraftAny,
   puzzleFingerprint,
   saveCrosswordDraft,
   wordRestoreKey,
@@ -267,6 +267,10 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     void dispatch(hydrateFromIDB());
   }, [dispatch]);
 
+  const persistedDraft = useMemo(() => {
+    return loadCrosswordDraftAny(deckPath);
+  }, [deckPath]);
+
   /**
    * Live due queue (and fallback) changes after every grade when cards leave "due" — that used to rebuild the whole
    * puzzle, new word ids, and wipe draft/selection. Freeze the card-id list for this screen visit until `deckPath`
@@ -288,12 +292,23 @@ export function CrosswordGameStudy({ deckPath }: Props) {
 
   useLayoutEffect(() => {
     if (frozenSourcePack !== null) return;
+
+    // If we have a persisted draft for this deck path that recorded the source card ids used to build the
+    // puzzle, prefer it so a refresh recreates the exact same crossword (and can rehydrate typed slots).
+    if (persistedDraft && persistedDraft.v === 2 && Array.isArray(persistedDraft.sourceCardIds)) {
+      const usable = persistedDraft.sourceCardIds.filter((id) => Boolean(byId[id]));
+      if (usable.length > 0) {
+        setFrozenSourcePack({ sourceCardIds: usable, usingNotDueFallback: liveSourcePack.usingNotDueFallback });
+        return;
+      }
+    }
+
     if (liveSourcePack.sourceCardIds.length === 0) return;
     setFrozenSourcePack({
       sourceCardIds: liveSourcePack.sourceCardIds.slice(),
       usingNotDueFallback: liveSourcePack.usingNotDueFallback,
     });
-  }, [liveSourcePack, frozenSourcePack]);
+  }, [byId, liveSourcePack, frozenSourcePack, persistedDraft]);
 
   const sourceCardIds = frozenSourcePack?.sourceCardIds ?? liveSourcePack.sourceCardIds;
   const usingNotDueFallback = frozenSourcePack?.usingNotDueFallback ?? liveSourcePack.usingNotDueFallback;
@@ -411,8 +426,8 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     if (!puzzle) return;
     setClueGradeErrorWordId(null);
     const fp = puzzleFingerprint(puzzle.words);
-    const draft = loadCrosswordDraft(deckPath);
-    const matching = Boolean(draft && draft.v === 1 && draft.fingerprint === fp);
+    const draft = loadCrosswordDraftAny(deckPath);
+    const matching = Boolean(draft && (draft.v === 1 || draft.v === 2) && draft.fingerprint === fp);
 
     if (!matching) {
       setGradedWordIds(new Set());
@@ -495,6 +510,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         deckPath,
         buildCrosswordDraft({
           puzzle,
+          sourceCardIds,
           inputByWord,
           view,
           blindMode,
@@ -509,13 +525,19 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         draftSaveTimerRef.current = null;
       }
     };
-  }, [puzzle, deckPath, inputByWord, view, blindMode, selectedWordId, gradedWordIds, puzzleSessionComplete]);
+  }, [puzzle, deckPath, sourceCardIds, inputByWord, view, blindMode, selectedWordId, gradedWordIds, puzzleSessionComplete]);
 
   useEffect(() => {
     const flush = () => {
       const snap = persistSnapshotRef.current;
       if (!snap) return;
-      saveCrosswordDraft(snap.deckPath, buildCrosswordDraft(snap));
+      saveCrosswordDraft(
+        snap.deckPath,
+        buildCrosswordDraft({
+          ...snap,
+          sourceCardIds,
+        }),
+      );
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") flush();
@@ -526,7 +548,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [sourceCardIds]);
 
   useEffect(() => {
     if (!puzzle) return;
