@@ -6,6 +6,7 @@ import {
   markCardDirtyLocal,
   markFlashcardReviewDeferSiblingDuesLocal,
   markScheduleAcrossNoteVariantsLocal,
+  realignNoteVariantSchedulesLocal,
   pullNewCards,
   pullContentChangesSince,
   pushDirtyCards,
@@ -91,6 +92,9 @@ const syncSlice = createSlice({
       })
       .addCase(markFlashcardReviewDeferSiblingDuesLocal.rejected, (state, action) => {
         state.lastError = String(action.payload ?? action.error.message ?? "flashcard review save failed");
+      })
+      .addCase(realignNoteVariantSchedulesLocal.rejected, (state, action) => {
+        state.lastError = String(action.payload ?? action.error.message ?? "variant schedule realign failed");
       })
       .addCase(clearIndexedDbCards.pending, (state) => {
         state.lastError = null;

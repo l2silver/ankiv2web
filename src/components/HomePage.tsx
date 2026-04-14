@@ -10,6 +10,7 @@ import {
   pullNewCards,
   pullContentChangesSince,
   pushDirtyCards,
+  realignNoteVariantSchedulesLocal,
 } from "@/features/sync/syncThunks";
 import {
   getDisplayApiBaseUrl,
@@ -25,6 +26,7 @@ import {
   countDueCards,
   NESTED_DECK_SEPARATOR,
 } from "@/lib/cards/deckTree";
+import { computeNoteVariantScheduleRealignments } from "@/lib/cards/realignNoteVariantSchedules";
 import { DeckTreeRows } from "@/components/DeckTreeRows";
 import { clearStoredCredentials } from "@/lib/settings/apiCredentials";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
@@ -32,6 +34,8 @@ import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 export function HomePage() {
   const dispatch = useAppDispatch();
   const [isClearingIdb, setIsClearingIdb] = useState(false);
+  const [isRealigningVariants, setIsRealigningVariants] = useState(false);
+  const [realignLastMessage, setRealignLastMessage] = useState<string | null>(null);
   const sync = useAppSelector((s) => s.sync);
   const cards = useAppSelector((s) => s.cards);
   const cardCount = cards.allIds.length;
@@ -111,9 +115,10 @@ export function HomePage() {
             <strong className="font-medium text-zinc-400">grading in flashcards or crossword</strong> updates the same
             schedule for every variant of that note, so one mode satisfies the other until the next due date. The first
             due number matches the flashcard queue; <span className="text-zinc-400">more_questions-only</span> only
-            appears when no drill variant is due but a crossword-only row still is (usually stale data before the next
-            review syncs it). <code className="text-zinc-600">due_at</code> ≤ now, not suspended, not buried; counts
-            refresh about every minute.
+            appears when no drill variant is due but a crossword-only row still is (usually stale schedules). Use{" "}
+            <span className="text-zinc-400">Align variant schedules</span> under Sync &amp; developer tools to repair.{" "}
+            <code className="text-zinc-600">due_at</code> ≤ now, not suspended, not buried; counts refresh about every
+            minute.
           </p>
 
           {deckRoots.length === 0 ? (
@@ -144,8 +149,16 @@ export function HomePage() {
             ) : null}
             <p className="mb-3 text-xs text-zinc-500">
               Use <span className="text-zinc-400">Reset app</span> to wipe this browser&apos;s copy of all cards and
-              start over (same as a fresh install for local data). API credentials stay unless you clear them below.
+              start over (same as a fresh install for local data). API credentials stay unless you clear them below.{" "}
+              <span className="text-zinc-400">Align variant schedules</span> copies each multi-variant note&apos;s lead
+              schedule onto sibling rows (fixes stale <code className="text-zinc-600">more_questions</code> dues), marks
+              those rows dirty, then you can push.
             </p>
+            {realignLastMessage ? (
+              <p className="mb-3 text-xs text-emerald-400/90" role="status">
+                {realignLastMessage}
+              </p>
+            ) : null}
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-4">
                 <dt className="text-zinc-500">isPulling</dt>
@@ -202,6 +215,44 @@ export function HomePage() {
                 className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
               >
                 {sync.isPushing ? "Pushing…" : "Push dirty cards"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { patches, groupCount } = computeNoteVariantScheduleRealignments(cards.byId, cards.allIds);
+                  if (patches.length === 0) {
+                    window.alert(
+                      "No variant rows need a schedule fix — every multi-variant note already matches its lead row.",
+                    );
+                    return;
+                  }
+                  if (
+                    !window.confirm(
+                      `Align schedules for ${patches.length} card row(s) across ${groupCount} note(s) that have multiple variants?\n\n` +
+                        "For each note, the app picks a lead row (prefers a flashcard-queue variant, otherwise earliest due), then copies its full schedule (due, interval, ease, reps, lapses, last review) onto every sibling row. Rows are marked dirty so you can push them to the server.",
+                    )
+                  ) {
+                    return;
+                  }
+                  setIsRealigningVariants(true);
+                  setRealignLastMessage(null);
+                  void dispatch(realignNoteVariantSchedulesLocal())
+                    .unwrap()
+                    .then((r) => {
+                      setRealignLastMessage(
+                        `Aligned ${r.patched} variant row(s) across ${r.groupCount} multi-variant note(s). Use Push dirty cards when you want this device’s copy on the server.`,
+                      );
+                      setDueClock((n) => n + 1);
+                    })
+                    .catch(() => {
+                      /* sync.lastError */
+                    })
+                    .finally(() => setIsRealigningVariants(false));
+                }}
+                disabled={cardCount === 0 || sync.isPulling || sync.isPushing || isRealigningVariants}
+                className="rounded-lg border border-teal-800/90 bg-teal-950/50 px-4 py-2 text-sm font-medium text-teal-100 hover:bg-teal-950/80 disabled:opacity-50"
+              >
+                {isRealigningVariants ? "Aligning…" : "Align variant schedules"}
               </button>
               <button
                 type="button"

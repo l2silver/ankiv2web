@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { hydrateFromIDB, markScheduleAcrossNoteVariantsLocal } from "@/features/sync/syncThunks";
 import { CrosswordBoard } from "@/components/crossword/CrosswordBoard";
@@ -263,10 +263,36 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     void dispatch(hydrateFromIDB());
   }, [dispatch]);
 
-  const { sourceCardIds, usingNotDueFallback } = useMemo(() => {
+  /**
+   * Live due queue (and fallback) changes after every grade when cards leave "due" — that used to rebuild the whole
+   * puzzle, new word ids, and wipe draft/selection. Freeze the card-id list for this screen visit until `deckPath`
+   * changes so the grid and clue numbers stay stable while you play.
+   */
+  const liveSourcePack = useMemo(() => {
     const nowMs = Date.now();
     return crosswordSourceCardIdsForDeck(byId, allIds, deckPath, nowMs);
   }, [byId, allIds, deckPath]);
+
+  const [frozenSourcePack, setFrozenSourcePack] = useState<{
+    sourceCardIds: string[];
+    usingNotDueFallback: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    setFrozenSourcePack(null);
+  }, [deckPath]);
+
+  useLayoutEffect(() => {
+    if (frozenSourcePack !== null) return;
+    if (liveSourcePack.sourceCardIds.length === 0) return;
+    setFrozenSourcePack({
+      sourceCardIds: liveSourcePack.sourceCardIds.slice(),
+      usingNotDueFallback: liveSourcePack.usingNotDueFallback,
+    });
+  }, [liveSourcePack, frozenSourcePack]);
+
+  const sourceCardIds = frozenSourcePack?.sourceCardIds ?? liveSourcePack.sourceCardIds;
+  const usingNotDueFallback = frozenSourcePack?.usingNotDueFallback ?? liveSourcePack.usingNotDueFallback;
 
   const { clues: flatClues, answersTruncatedToGridMax } = useMemo(
     () => clueInputsFromDueCards(byId, sourceCardIds, allIds),
@@ -587,7 +613,6 @@ export function CrosswordGameStudy({ deckPath }: Props) {
       try {
         await dispatch(markScheduleAcrossNoteVariantsLocal({ gradedId: card.id, fields })).unwrap();
         const wid = selectedWordId;
-        const gradedCid = cid;
         setGradedWordIds((prev) => {
           const next = new Set(prev);
           next.add(wid);
@@ -596,11 +621,12 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         if (puzzle) {
           const active = puzzle.words.filter((w) => w.dir === view);
           const idx = active.findIndex((w) => w.id === wid);
+          const nextGraded = new Set(gradedWordIds);
+          nextGraded.add(wid);
           if (idx >= 0) {
             for (let step = 1; step < active.length; step++) {
               const w = active[(idx + step) % active.length]!;
-              const wCid = cardIdFromPlacedWordId(w.id);
-              if (wCid && wCid !== gradedCid) {
+              if (!nextGraded.has(w.id)) {
                 setSelectedWordId(w.id);
                 break;
               }
@@ -612,7 +638,7 @@ export function CrosswordGameStudy({ deckPath }: Props) {
         setIsGrading(false);
       }
     },
-    [byId, dispatch, inputByWord, puzzle, selectedWord, selectedWordFullyFilled, selectedWordId, view],
+    [byId, dispatch, gradedWordIds, inputByWord, puzzle, selectedWord, selectedWordFullyFilled, selectedWordId, view],
   );
 
   if (sourceCardIds.length === 0) {

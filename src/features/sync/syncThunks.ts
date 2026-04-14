@@ -4,6 +4,7 @@ import { isApiReadyForRequests, isPullAvailable, isSyncPullMockEnabled } from "@
 import { patchSync, postCardsChangedSince, postCardsNewIndex } from "@/lib/api/sync";
 import type { CardsChangedSinceRequest } from "@/lib/api/types";
 import { deferDueByOneDay, noteVariantCardIds } from "@/lib/cards/crosswordFromCard";
+import { computeNoteVariantScheduleRealignments } from "@/lib/cards/realignNoteVariantSchedules";
 import { normalizeServerCard } from "@/lib/cards/normalize";
 import { cardUpdatedAtEpochMs } from "@/lib/cards/updatedAt";
 import { storedCardToSyncPatch } from "@/lib/cards/syncPatch";
@@ -315,6 +316,28 @@ export const markFlashcardReviewDeferSiblingDuesLocal = createAsyncThunk(
         await dispatch(markCardDirtyLocal({ id, fields: { due_at } })).unwrap();
       }
       return ids;
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
+/**
+ * One-shot repair: for each note with multiple variant rows, copy the lead variant's full schedule
+ * onto every sibling so deck vs flashcard due counts are not stuck on stale `more_questions` rows.
+ */
+export const realignNoteVariantSchedulesLocal = createAsyncThunk(
+  "sync/realignNoteVariantSchedulesLocal",
+  async (_, { dispatch, getState, rejectWithValue }) => {
+    try {
+      const state = getState() as CardsSlicePick;
+      const { patches, groupCount } = computeNoteVariantScheduleRealignments(state.cards.byId, state.cards.allIds);
+      let patched = 0;
+      for (const p of patches) {
+        await dispatch(markCardDirtyLocal({ id: p.id, fields: p.fields })).unwrap();
+        patched++;
+      }
+      return { patched, groupCount };
     } catch (e) {
       return rejectWithValue(e instanceof Error ? e.message : String(e));
     }
