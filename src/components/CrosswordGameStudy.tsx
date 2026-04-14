@@ -627,10 +627,23 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           return next;
         });
         if (puzzle) {
-          const active = puzzle.words.filter((w) => w.dir === view);
-          const idx = active.findIndex((w) => w.id === wid);
           const nextGraded = new Set(gradedWordIds);
           nextGraded.add(wid);
+
+          // UX: after successfully scheduling the last remaining Across word, automatically flip to Down.
+          if (view === "across") {
+            const acrossWords = puzzle.words.filter((w) => w.dir === "across");
+            const acrossAllGraded = acrossWords.length > 0 && acrossWords.every((w) => nextGraded.has(w.id));
+            if (acrossAllGraded) {
+              setView("down");
+              const nextDown = puzzle.words.find((w) => w.dir === "down" && !nextGraded.has(w.id));
+              setSelectedWordId(nextDown?.id ?? null);
+              return;
+            }
+          }
+
+          const active = puzzle.words.filter((w) => w.dir === view);
+          const idx = active.findIndex((w) => w.id === wid);
           if (idx >= 0) {
             for (let step = 1; step < active.length; step++) {
               const w = active[(idx + step) % active.length]!;
@@ -890,15 +903,6 @@ export function CrosswordGameStudy({ deckPath }: Props) {
           ) : (
             <p className="text-sm text-zinc-500">Select a word to type.</p>
           )}
-          <div className="mt-4">
-            <CrosswordLetterKeyboard
-              value={answerValue}
-              slotCount={answerLen}
-              disabled={!selectedWord}
-              onValueChange={onChangeSelectedAnswer}
-              selectionKey={selectedWordId ?? ""}
-            />
-          </div>
           {selectedWordFullyFilled && cardForSelectedWord && selectedWord ? (
             <>
               <CrosswordGradeButtons
@@ -916,6 +920,15 @@ export function CrosswordGameStudy({ deckPath }: Props) {
               ) : null}
             </>
           ) : null}
+          <div className="mt-4">
+            <CrosswordLetterKeyboard
+              value={answerValue}
+              slotCount={answerLen}
+              disabled={!selectedWord}
+              onValueChange={onChangeSelectedAnswer}
+              selectionKey={selectedWordId ?? ""}
+            />
+          </div>
         </section>
       </div>
 
