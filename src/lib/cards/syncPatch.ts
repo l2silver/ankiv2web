@@ -16,6 +16,7 @@ const PATCH_KEYS = [
   "context",
   "note_type",
   "card_variant",
+  "flag",
   "more_questions",
 ] as const;
 

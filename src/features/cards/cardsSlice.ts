@@ -30,6 +30,8 @@ export type CardEntity = {
   note_type?: string;
   /** Per-note template within `note_type` (wire string; often snake_case, e.g. language `front->back+context`). */
   card_variant?: string;
+  /** User-controlled marker for triage/revisit; synced to Firestore. */
+  flag?: boolean;
   /** Extra study prompts (any `type`); crossword UI uses rows where `type === "Crossword"`. */
   more_questions?: MoreQuestion[];
   due_at?: string;

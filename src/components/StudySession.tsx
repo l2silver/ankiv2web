@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 
-import { hydrateFromIDB, markFlashcardReviewDeferSiblingDuesLocal } from "@/features/sync/syncThunks";
+import { hydrateFromIDB, markCardDirtyLocal, markFlashcardReviewDeferSiblingDuesLocal } from "@/features/sync/syncThunks";
 import { dueCardIdsForDeck } from "@/lib/cards/deckTree";
 import {
   intervalHintForGrade,
@@ -247,7 +247,6 @@ export function StudySession({ deckPath }: Props) {
 
   const { dueAllIds, queue } = useMemo(() => {
     void dueClock;
-    // eslint-disable-next-line react-hooks/purity -- wall-clock for `due_at` vs now
     const nowMs = Date.now();
     return {
       dueAllIds: dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "all"),
@@ -289,6 +288,12 @@ export function StudySession({ deckPath }: Props) {
   }, [card]);
 
   const showAnswer = useCallback(() => setRevealed(true), []);
+
+  const toggleFlag = useCallback(async () => {
+    if (!card || gradingLockRef.current) return;
+    const next = !Boolean(card.flag);
+    await dispatch(markCardDirtyLocal({ id: card.id, fields: { flag: next } })).unwrap();
+  }, [card, dispatch]);
 
   const submitGrade = useCallback(
     async (grade: ReviewGrade) => {
@@ -478,7 +483,23 @@ export function StudySession({ deckPath }: Props) {
           <span className="text-zinc-600">Deck</span>{" "}
           <span className="text-zinc-400">{card.deck_id?.trim() ? card.deck_id.trim() : "(no deck)"}</span>
         </p>
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Question</p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Question</p>
+          <button
+            type="button"
+            disabled={isGrading}
+            onClick={() => void toggleFlag()}
+            className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${
+              card.flag
+                ? "border-amber-600/70 bg-amber-950/30 text-amber-200 hover:bg-amber-950/50"
+                : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60"
+            }`}
+            aria-pressed={Boolean(card.flag)}
+            title={card.flag ? "Unflag this card" : "Flag this card"}
+          >
+            {card.flag ? "Flagged" : "Flag"}
+          </button>
+        </div>
         <div className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">{faces.front}</div>
 
         {!revealed ? (

@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { toSlotString } from "@/lib/crossword/normalizeAnswer";
+import { isCrosswordLetterChar, toSlotString } from "@/lib/crossword/normalizeAnswer";
 
 const ROWS: string[][] = [
   ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
@@ -10,7 +10,7 @@ const ROWS: string[][] = [
   ["z", "x", "c", "v", "b", "n", "m"],
 ];
 
-/** Accented vowels and ç; parent `toSlotString` folds to a–z. */
+/** Accented vowels and ç — must match the clue (plain vowels are not interchangeable). */
 const FRENCH_VOWEL_ACCENTS = [
   "à",
   "â",
@@ -82,7 +82,7 @@ export function CrosswordLetterKeyboard({
 
   const insertLetter = (letter: string) => {
     if (!canType) return;
-    const chars = slotStr.split("");
+    const chars = [...slotStr];
     const i = Math.min(cursorIndex, slotCount - 1);
     chars[i] = letter;
     applySlot(chars);
@@ -91,9 +91,9 @@ export function CrosswordLetterKeyboard({
 
   const applyBackspace = () => {
     if (!canType) return;
-    const chars = slotStr.split("");
+    const chars = [...slotStr];
     let i = Math.min(cursorIndex, slotCount - 1);
-    if (chars[i] !== "." && /[a-z]/.test(chars[i]!)) {
+    if (chars[i] !== "." && isCrosswordLetterChar(chars[i]!)) {
       chars[i] = ".";
       applySlot(chars);
       return;
@@ -113,12 +113,12 @@ export function CrosswordLetterKeyboard({
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      const chars = toSlotString(value, slotCount).split("");
+      const chars = [...toSlotString(value, slotCount)];
       const i = Math.min(cursorIndex, slotCount - 1);
 
       if (e.key === "Backspace") {
         e.preventDefault();
-        if (chars[i] !== "." && /[a-z]/.test(chars[i]!)) {
+        if (chars[i] !== "." && isCrosswordLetterChar(chars[i]!)) {
           chars[i] = ".";
           onValueChange(chars.join(""));
           return;
@@ -133,13 +133,10 @@ export function CrosswordLetterKeyboard({
       }
 
       if (e.key.length === 1) {
-        const folded = e.key
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase();
-        if (folded.length === 1 && folded >= "a" && folded <= "z") {
+        const ch = e.key.normalize("NFC").toLowerCase();
+        if (isCrosswordLetterChar(ch)) {
           e.preventDefault();
-          chars[i] = folded;
+          chars[i] = ch;
           onValueChange(chars.join(""));
           if (i < slotCount - 1) setCursorIndex(i + 1);
         }

@@ -5,7 +5,7 @@ export type CrosswordView = "across" | "down";
 
 export type WordDir = CrosswordView;
 
-/** One clue placed on the board (answer is A–Z only). */
+/** One clue placed on the board (answer letters are Unicode; accents are significant). */
 export type PlacedWord = {
   id: string;
   question: string;

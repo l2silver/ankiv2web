@@ -119,6 +119,9 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   if (suspended !== undefined) card.suspended = suspended;
   if (buried !== undefined) card.buried = buried;
 
+  const flag = optBool(raw.flag);
+  if (flag !== undefined) card.flag = flag;
+
   let more_questions = optMoreQuestions(raw.more_questions ?? raw["moreQuestions"]);
   const legacyCross = optCrosswordQuestions(raw.crossword_questions ?? raw["crosswordQuestions"]);
   if (legacyCross !== undefined && legacyCross.length > 0) {

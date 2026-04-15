@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { hydrateFromIDB, markScheduleAcrossNoteVariantsLocal } from "@/features/sync/syncThunks";
+import { hydrateFromIDB, markCardDirtyLocal, markScheduleAcrossNoteVariantsLocal } from "@/features/sync/syncThunks";
 import { CrosswordBoard } from "@/components/crossword/CrosswordBoard";
 import { CrosswordFlashcardPopup } from "@/components/crossword/CrosswordFlashcardPopup";
 import { CrosswordLetterKeyboard } from "@/components/crossword/CrosswordLetterKeyboard";
@@ -615,6 +615,12 @@ export function CrosswordGameStudy({ deckPath }: Props) {
     return cid ? byId[cid] : undefined;
   }, [byId, selectedWordId]);
 
+  const toggleFlagForSelected = useCallback(async () => {
+    if (!cardForSelectedWord || gradingLockRef.current) return;
+    const next = !Boolean(cardForSelectedWord.flag);
+    await dispatch(markCardDirtyLocal({ id: cardForSelectedWord.id, fields: { flag: next } })).unwrap();
+  }, [cardForSelectedWord, dispatch]);
+
   const deckLabelForSelected = useMemo(() => {
     const raw = cardForSelectedWord?.deck_id?.trim();
     return raw ? raw : "(no deck)";
@@ -924,6 +930,22 @@ export function CrosswordGameStudy({ deckPath }: Props) {
                     className="rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-xs font-medium text-zinc-200 transition hover:border-zinc-500 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:text-sm"
                   >
                     View card
+                  </button>
+                ) : null}
+                {cardForSelectedWord ? (
+                  <button
+                    type="button"
+                    disabled={isGrading}
+                    onClick={() => void toggleFlagForSelected()}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 sm:text-sm ${
+                      cardForSelectedWord.flag
+                        ? "border-amber-600/70 bg-amber-950/30 text-amber-200 hover:bg-amber-950/50"
+                        : "border-zinc-600 bg-zinc-900/80 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800"
+                    }`}
+                    aria-pressed={Boolean(cardForSelectedWord.flag)}
+                    title={cardForSelectedWord.flag ? "Unflag this card" : "Flag this card"}
+                  >
+                    {cardForSelectedWord.flag ? "Flagged" : "Flag"}
                   </button>
                 ) : null}
                 <button

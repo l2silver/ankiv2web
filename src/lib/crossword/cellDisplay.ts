@@ -1,16 +1,19 @@
+import { isCrosswordLetterChar } from "@/lib/crossword/normalizeAnswer";
+
 import { decoyLetter } from "./decoyLetter";
 import type { CrosswordView, GridCell } from "./types";
 
 function userCharAt(wordId: string | null, offset: number | null, inputByWord: Record<string, string>): string {
   if (wordId === null || offset === null) return "";
-  const s = (inputByWord[wordId] ?? "").toLowerCase();
-  const ch = s[offset];
+  const s = (inputByWord[wordId] ?? "").normalize("NFC").toLowerCase();
+  const ch = [...s][offset];
   if (ch === "." || !ch) return "";
-  return /[a-z]/.test(ch) ? ch : "";
+  return isCrosswordLetterChar(ch) ? ch : "";
 }
 
 function wordInputHasAnyLetter(wordId: string, inputByWord: Record<string, string>): boolean {
-  return /[a-z]/.test((inputByWord[wordId] ?? "").toLowerCase());
+  const s = (inputByWord[wordId] ?? "").normalize("NFC").toLowerCase();
+  return [...s].some((ch) => isCrosswordLetterChar(ch));
 }
 
 /**
