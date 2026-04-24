@@ -1,8 +1,56 @@
 import type { CardEntity, CrosswordQuestion, MoreQuestion } from "@/features/cards/cardsSlice";
 import { normalizeCrosswordAnswer } from "@/lib/crossword/normalizeAnswer";
+import {
+  CARD_VARIANT_BACK_FRONT_PLUS_CONTEXT,
+  CARD_VARIANT_FRONT_BACK_PLUS_CONTEXT,
+} from "@/lib/flashcards/sharedArrowCardVariants";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 
 const MS_PER_DAY = 86_400_000;
+
+function alphaSpace(s: string): string {
+  const n = (s ?? "").normalize("NFC");
+  // Keep all Unicode letters; turn everything else into a space.
+  const spaced = n.replace(/[^\p{L}]+/gu, " ").trim();
+  return spaced ? spaced.split(/\s+/g).join(" ") : "";
+}
+
+function alphaCompact(s: string): string {
+  const n = (s ?? "").normalize("NFC");
+  return n.replace(/[^\p{L}]+/gu, "");
+}
+
+function alphaCrosswordRowsFromQA(front: string | undefined, back: string | undefined): CrosswordQuestion[] {
+  const qRaw = (front ?? "").trim();
+  const aRaw = (back ?? "").trim();
+  const qClue = alphaSpace(qRaw);
+  const aClue = alphaSpace(aRaw);
+  const qSol = alphaCompact(qRaw);
+  const aSol = alphaCompact(aRaw);
+  if (!aSol || !qClue) return [];
+
+  const forward: CrosswordQuestion = {
+    question: qClue,
+    answer: aSol,
+    variantType: CARD_VARIANT_FRONT_BACK_PLUS_CONTEXT,
+  };
+  if (qSol.localeCompare(aSol, undefined, { sensitivity: "accent" }) === 0) return [forward];
+
+  return [
+    forward,
+    {
+      question: aClue,
+      answer: qSol,
+      variantType: CARD_VARIANT_BACK_FRONT_PLUS_CONTEXT,
+    },
+  ];
+}
+
+function crosswordSig(q: CrosswordQuestion): string {
+  const qq = (q.question ?? "").trim().toLowerCase();
+  const aa = (q.answer ?? "").trim().toLowerCase();
+  return `${qq}\t${aa}`;
+}
 
 /**
  * Pushes a card's next due at least one day later than both "now" and its current due.
@@ -103,9 +151,25 @@ export function crosswordQuestionsFromCard(card: CardEntity): CrosswordQuestion[
       out.push({ question: item.question, answer: item.answer, variantType });
     }
   }
-  if (out.length > 0) return out;
   const legacy = (card as CardEntity & { crossword_questions?: CrosswordQuestion[] }).crossword_questions;
-  return legacy ?? [];
+  if (out.length === 0 && Array.isArray(legacy) && legacy.length > 0) {
+    out.push(...legacy);
+  }
+
+  // Derive deterministic “alpha-only” crossword rows from the note’s front/back at runtime.
+  // This avoids needing to rewrite persisted `more_questions` whenever `front` / `back` change.
+  const derived = alphaCrosswordRowsFromQA(card.front, card.back);
+  if (derived.length > 0) {
+    const seen = new Set(out.map(crosswordSig));
+    for (const q of derived) {
+      const sig = crosswordSig(q);
+      if (seen.has(sig)) continue;
+      seen.add(sig);
+      out.push(q);
+    }
+  }
+
+  return out;
 }
 
 /** True when the card has at least one crossword clue whose normalized answer is long enough to place on the grid. */
