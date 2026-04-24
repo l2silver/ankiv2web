@@ -164,3 +164,58 @@ export function dueCardIdsForDeck(
   });
   return ids;
 }
+
+/**
+ * Roll up **total** counts for every non-deleted card (browsing, not due scheduling).
+ * `due` / `dueCrosswordOnly` are zero — `buildDeckTree` is reused for hierarchy only.
+ */
+export function aggregateDeckPathsForBrowser(
+  byId: Record<string, CardEntity>,
+  allIds: string[],
+): Map<string, DeckPathAggregate> {
+  const map = new Map<string, DeckPathAggregate>();
+  for (const id of allIds) {
+    const c = byId[id];
+    if (!c || c.deleted_at?.trim()) continue;
+    const leaf = deckKeyFromCard(c);
+    for (const prefix of deckPathPrefixes(leaf)) {
+      if (!map.has(prefix)) map.set(prefix, { due: 0, dueCrosswordOnly: 0, total: 0 });
+      map.get(prefix)!.total++;
+    }
+  }
+  return map;
+}
+
+function sortCardIdsByDueThenId(byId: Record<string, CardEntity>, ids: string[]): string[] {
+  const copy = [...ids];
+  copy.sort((a, b) => {
+    const ta = Date.parse(byId[a]?.due_at ?? "") || 0;
+    const tb = Date.parse(byId[b]?.due_at ?? "") || 0;
+    if (ta !== tb) return ta - tb;
+    return a.localeCompare(b);
+  });
+  return copy;
+}
+
+/** Non-deleted cards in the deck subtree, ordered by `due_at` then id. */
+export function orderedCardIdsInDeckSubtree(
+  byId: Record<string, CardEntity>,
+  allIds: string[],
+  deckPath: string,
+): string[] {
+  const ids = allIds.filter((id) => {
+    const c = byId[id];
+    if (!c || c.deleted_at?.trim()) return false;
+    return cardMatchesDeckPath(c, deckPath);
+  });
+  return sortCardIdsByDueThenId(byId, ids);
+}
+
+/** Flagged, non-deleted cards (any deck), ordered by `due_at` then id. */
+export function orderedFlaggedCardIds(byId: Record<string, CardEntity>, allIds: string[]): string[] {
+  const ids = allIds.filter((id) => {
+    const c = byId[id];
+    return Boolean(c && !c.deleted_at?.trim() && c.flag);
+  });
+  return sortCardIdsByDueThenId(byId, ids);
+}

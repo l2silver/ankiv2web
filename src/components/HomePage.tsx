@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { syncErrorCleared } from "@/features/sync/syncSlice";
@@ -99,11 +100,21 @@ export function HomePage() {
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-800 px-6 py-4">
-        <h1 className="text-xl font-semibold tracking-tight">Anki2</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          Deck list and due counts only (no card previews) — spec:{" "}
-          <code className="text-zinc-500">ankiv2/ANKI2-FRONTEND-DESIGN.md</code> §2.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Anki2</h1>
+            <p className="mt-1 text-sm text-zinc-400">
+              Deck list and due counts only (no card previews) — spec:{" "}
+              <code className="text-zinc-500">ankiv2/ANKI2-FRONTEND-DESIGN.md</code> §2.
+            </p>
+          </div>
+          <Link
+            href="/browse"
+            className="shrink-0 rounded-lg border border-zinc-600 bg-zinc-900/60 px-3 py-2 text-sm font-medium text-sky-300 hover:border-sky-700/80 hover:bg-sky-950/40 hover:text-sky-200"
+          >
+            Browse cards
+          </Link>
+        </div>
       </header>
       <main className="flex flex-1 flex-col gap-6 px-6 py-8">
         <section className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
