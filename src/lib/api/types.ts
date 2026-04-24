@@ -5,6 +5,7 @@ export type { CrosswordQuestion, MoreQuestion };
 /** Body for `PATCH /sync` — `id` plus any fields that changed (snake_case, matches OpenAPI). */
 export type SyncPatchCard = {
   id: string;
+  deleted_at?: string;
   due_at?: string;
   interval_days?: number;
   ease?: number;

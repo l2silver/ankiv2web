@@ -295,6 +295,25 @@ export function StudySession({ deckPath }: Props) {
     await dispatch(markCardDirtyLocal({ id: card.id, fields: { flag: next } })).unwrap();
   }, [card, dispatch]);
 
+  const deleteCard = useCallback(async () => {
+    if (!card || gradingLockRef.current) return;
+    if (
+      !window.confirm(
+        "Delete this card?\n\nThis removes it from study on all devices after sync. You can’t undo this from the web app.",
+      )
+    ) {
+      return;
+    }
+    await dispatch(
+      markCardDirtyLocal({
+        id: card.id,
+        fields: { deleted_at: new Date().toISOString() },
+      }),
+    ).unwrap();
+    setRevealed(false);
+    setAnsweredInSession((n) => n + 1);
+  }, [card, dispatch]);
+
   const submitGrade = useCallback(
     async (grade: ReviewGrade) => {
       if (!card || gradingLockRef.current) return;
@@ -485,20 +504,31 @@ export function StudySession({ deckPath }: Props) {
         </p>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Question</p>
-          <button
-            type="button"
-            disabled={isGrading}
-            onClick={() => void toggleFlag()}
-            className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${
-              card.flag
-                ? "border-amber-600/70 bg-amber-950/30 text-amber-200 hover:bg-amber-950/50"
-                : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60"
-            }`}
-            aria-pressed={Boolean(card.flag)}
-            title={card.flag ? "Unflag this card" : "Flag this card"}
-          >
-            {card.flag ? "Flagged" : "Flag"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isGrading}
+              onClick={() => void deleteCard()}
+              className="inline-flex items-center rounded-lg border border-rose-900/80 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-950/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
+              title="Delete this card"
+            >
+              Delete…
+            </button>
+            <button
+              type="button"
+              disabled={isGrading}
+              onClick={() => void toggleFlag()}
+              className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${
+                card.flag
+                  ? "border-amber-600/70 bg-amber-950/30 text-amber-200 hover:bg-amber-950/50"
+                  : "border-zinc-700 bg-zinc-950/40 text-zinc-300 hover:bg-zinc-900/60"
+              }`}
+              aria-pressed={Boolean(card.flag)}
+              title={card.flag ? "Unflag this card" : "Flag this card"}
+            >
+              {card.flag ? "Flagged" : "Flag"}
+            </button>
+          </div>
         </div>
         <div className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">{faces.front}</div>
 

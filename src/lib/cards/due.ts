@@ -5,6 +5,7 @@ import type { CardEntity } from "@/features/cards/cardsSlice";
  * Card counts as due when `due_at` is on or before `now`, and it is not suspended or buried.
  */
 export function isCardDueNow(card: CardEntity, nowMs: number): boolean {
+  if (card.deleted_at?.trim()) return false;
   if (card.suspended) return false;
   if (card.buried) return false;
   if (!card.due_at?.trim()) return false;

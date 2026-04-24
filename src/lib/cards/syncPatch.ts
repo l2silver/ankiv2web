@@ -2,6 +2,7 @@ import type { SyncPatchCard } from "@/lib/api/types";
 import type { StoredCard } from "@/lib/db/cardsDb";
 
 const PATCH_KEYS = [
+  "deleted_at",
   "due_at",
   "interval_days",
   "ease",

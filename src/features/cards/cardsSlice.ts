@@ -42,6 +42,8 @@ export type CardEntity = {
   last_reviewed_at?: string;
   suspended?: boolean;
   buried?: boolean;
+  /** When present, this card is soft-deleted (tombstone) and should be hidden from UI. */
+  deleted_at?: string;
   created_at?: string;
   updated_at?: string;
   /** Server-wide monotonic stamp when shareable content last changed (see `POST /cards/changed-since`). */

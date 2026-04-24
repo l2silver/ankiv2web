@@ -87,6 +87,7 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   const card_variant = optString(raw.card_variant);
   const due_at = optString(raw.due_at);
   const last_reviewed_at = optString(raw.last_reviewed_at);
+  const deleted_at = optString(raw.deleted_at);
   const created_at = optString(raw.created_at);
   const updated_at = optString(raw.updated_at);
   if (deck_id !== undefined) card.deck_id = deck_id;
@@ -97,6 +98,7 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   if (card_variant !== undefined) card.card_variant = card_variant;
   if (due_at !== undefined) card.due_at = due_at;
   if (last_reviewed_at !== undefined) card.last_reviewed_at = last_reviewed_at;
+  if (deleted_at !== undefined) card.deleted_at = deleted_at;
   if (created_at !== undefined) card.created_at = created_at;
   if (updated_at !== undefined) card.updated_at = updated_at;
 
