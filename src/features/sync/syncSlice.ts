@@ -5,6 +5,7 @@ import {
   hydrateFromIDB,
   markCardDirtyLocal,
   markFlashcardReviewDeferSiblingDuesLocal,
+  markNoteContentFieldsAcrossVariantsLocal,
   markScheduleAcrossNoteVariantsLocal,
   realignNoteVariantSchedulesLocal,
   pullNewCards,
@@ -86,6 +87,9 @@ const syncSlice = createSlice({
       })
       .addCase(markCardDirtyLocal.rejected, (state, action) => {
         state.lastError = String(action.payload ?? action.error.message ?? "local edit failed");
+      })
+      .addCase(markNoteContentFieldsAcrossVariantsLocal.rejected, (state, action) => {
+        state.lastError = String(action.payload ?? action.error.message ?? "note text save failed");
       })
       .addCase(markScheduleAcrossNoteVariantsLocal.rejected, (state, action) => {
         state.lastError = String(action.payload ?? action.error.message ?? "local schedule sync failed");

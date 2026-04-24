@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, type ReactNode } from "react";
 
+import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
 import type { CardEntity } from "@/features/cards/cardsSlice";
 import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
 
@@ -81,6 +82,9 @@ export function CrosswordFlashcardPopup({
             <div className="my-5 border-t border-zinc-800" />
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Back</p>
             {renderFace(faces.back)}
+          </div>
+          <div className="mt-4">
+            <NoteContentFieldsForm anchorCard={card} compact />
           </div>
         </div>
       </div>

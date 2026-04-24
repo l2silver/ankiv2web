@@ -270,6 +270,32 @@ export const markCardDirtyLocal = createAsyncThunk(
 );
 
 /**
+ * Apply shared note text to every variant row for the same logical note (`deck_id` + front/back/context),
+ * so vocab/language/knowledge multi-row notes stay consistent and each document patches on sync.
+ */
+export const markNoteContentFieldsAcrossVariantsLocal = createAsyncThunk(
+  "sync/markNoteContentFieldsAcrossVariantsLocal",
+  async (
+    arg: { anchorId: string; front: string; back: string; context: string },
+    { dispatch, getState, rejectWithValue },
+  ) => {
+    try {
+      const state = getState() as CardsSlicePick;
+      const anchor = state.cards.byId[arg.anchorId];
+      if (!anchor) throw new Error(`card ${arg.anchorId} not in store`);
+      const ids = noteVariantCardIds(anchor, state.cards.byId, state.cards.allIds);
+      const fields = { front: arg.front, back: arg.back, context: arg.context };
+      for (const id of ids) {
+        await dispatch(markCardDirtyLocal({ id, fields })).unwrap();
+      }
+      return ids;
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
+/**
  * After a crossword review, apply the same scheduling fields to every variant row for the same note
  * (`deck_id` + main fields) so crossword and flashcard-style rows stay on one schedule.
  */

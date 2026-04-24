@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 
+import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
 import { hydrateFromIDB, markCardDirtyLocal, markFlashcardReviewDeferSiblingDuesLocal } from "@/features/sync/syncThunks";
 import { dueCardIdsForDeck } from "@/lib/cards/deckTree";
 import {
@@ -581,6 +582,10 @@ export function StudySession({ deckPath }: Props) {
             ) : null}
           </div>
         ) : null}
+
+        <div className="mt-8">
+          <NoteContentFieldsForm anchorCard={card} disabled={isGrading} />
+        </div>
 
         <div className="mt-6 flex justify-end sm:mt-8">
           <FlashcardVariantBadge

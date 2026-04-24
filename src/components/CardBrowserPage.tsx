@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
+import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
 import { hydrateFromIDB, markCardDirtyLocal } from "@/features/sync/syncThunks";
 import type { CardEntity } from "@/features/cards/cardsSlice";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
@@ -506,6 +507,9 @@ export function CardBrowserPage() {
               </div>
             </div>
             <CardViewerBody card={selectedCard} />
+            <div className="mt-6">
+              <NoteContentFieldsForm anchorCard={selectedCard} />
+            </div>
           </article>
         )}
       </div>

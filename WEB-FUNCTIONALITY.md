@@ -1,6 +1,6 @@
 # Ankiv2 web (`ankiv2/web`) — current functionality
 
-This document describes what the **Next.js 16 (App Router) + React 19** study client does today, aligned with `.cursor/rules/ankiv2-expert.md` and the source under `src/`. For deeper scheduling and queue rules, see `ankiv2/ANKI2-FRONTEND-DESIGN.md` and `ankiv2/DESIGN.md`.
+This document describes what the **Next.js 16 (App Router) + React 19** study client does today, aligned with `.cursor/rules/ankiv2-expert.md` and the source under `src/`. For deeper scheduling and queue rules, see `ankiv2/ANKI2-FRONTEND-DESIGN.md` and `ankiv2/DESIGN.md`. For the card browser only, see `ankiv2/CARD-BROWSER-DESIGN.md`.
 
 ## Stack and data flow
 
@@ -22,7 +22,8 @@ This document describes what the **Next.js 16 (App Router) + React 19** study cl
 
 | Route | Purpose |
 |-------|---------|
-| `/` | API gate + **home**: nested deck tree, due counts, sync / developer tools. |
+| `/` | API gate + **home**: nested deck tree, due counts, sync / developer tools, link to **Browse cards**. |
+| `/browse` | **Card browser** (`CardBrowserPage`): inspect cards by deck or by flagged filter; see section below. |
 | `/study` | Without `deck` query: short message telling the user to open study from a due link on home. |
 | `/study?deck=<path>` | **Study mode picker** (`StudyModePicker`): Flashcards vs Crossword Game. |
 | `/study?deck=<path>&mode=flashcard` | **Flashcard session** (`StudySession`). |
@@ -30,9 +31,19 @@ This document describes what the **Next.js 16 (App Router) + React 19** study cl
 
 `deck` is an Anki-style path using `::` segments; subtree matching is `deck_id === path` or `deck_id.startsWith(path + "::")` (`src/lib/cards/deckTree.ts`).
 
+## Card browser (`browse/page.tsx`, `CardBrowserPage.tsx`)
+
+- **Gate**: `ApiAppGate` + `Suspense` (same first-run URL/key flow as home). On mount: **`hydrateFromIDB`**.
+- **Scopes**: **`?filter=flagged`** (all flagged, non-deleted cards) or **`?deck=<path>`** (subtree); optional **`&card=<id>`** selects the viewer row. Updates use **`router.replace`**. If both `filter` and `deck` appear, **flagged wins**.
+- **Sidebar**: **Flags** button, then a deck tree built from **`aggregateDeckPathsForBrowser`** + **`buildDeckTree`** (totals count **non-deleted** cards only — not the same aggregates as the home due tree). Expand state: `localStorage` **`ankiv2.cardBrowser.openPaths.v1`** (separate from home’s `ankiv2.deckTree.openPaths.v1`).
+- **List**: **`orderedFlaggedCardIds`** / **`orderedCardIdsInDeckSubtree`** (`deckTree.ts`); tombstones (`deleted_at`) hidden.
+- **Viewer**: both sides via **`resolveFlashcardFaces`**; **Flag** via **`markCardDirtyLocal`**; **Study deck…** → `/study?deck=…`.
+- **Layout**: desktop = three columns (`≥` 1024px); mobile = stepped **Decks → Cards → Card** with **← Decks** / **← Cards** (see design doc for `forceDecksPanel` and single-branch `matchMedia` mounting).
+
 ## Home (`HomePage.tsx`)
 
 - On mount: **`hydrateFromIDB`**, then if pull is available **`pullNewCards`** and **`pullContentChangesSince`** once.
+- **Browse cards** link in the header → **`/browse`** (card browser).
 - **Deck tree** (`DeckTreeRows`): nested labels, expand/collapse per row (state persisted in `localStorage` under `ankiv2.deckTree.openPaths.v1`). Each row shows **due** (flashcard queue + crossword-only breakdown in the button label/title) and **total** cards in subtree.
 - **Due logic**: `due_at ≤ now`, not suspended, not buried (`src/lib/cards/due.ts`). Counts refresh on a **1 minute** timer and when the tab becomes visible again.
 - **Visibility**: when the document hides and there are dirty cards and the API is ready, **`pushDirtyCards`** runs automatically.
@@ -79,6 +90,7 @@ This document describes what the **Next.js 16 (App Router) + React 19** study cl
 | Area | Spec file | What is asserted |
 |------|-----------|-------------------|
 | Home / deck tree | `tests/web/home.spec.ts` | Pull mock hydrates nested decks; expand/collapse; due link → mode picker; sync panel + Pull; direct flashcard URL |
+| Card browser | `tests/web/browse.spec.ts` | Home → Browse; deck scope + list + viewer; flagged empty state; mobile stepped flow |
 | Study routing | `tests/web/study-routing.spec.ts` | `/study` without `deck`; mode picker → flashcard; reveal + **Good** + flag; keyboard Space/`3`; custom due block after reveal |
 | Crossword | `tests/web/crossword.spec.ts` | Grid chrome (Across/Down, Blind/Hints); reveal + grade one word; View card dialog |
 
