@@ -16,7 +16,7 @@ function defaultFaces(card: CardEntity): FlashcardFaces {
   };
 }
 
-/** Routes by `note_type` / `card_variant`. Language / vocab / knowledge use arrow-style `card_variant` strings; see each folder’s `*VariantNames.ts` and `front_to_back_plus_context.tsx` (etc.). */
+/** Routes by `note_type` / `card_variant`. Language / vocab / knowledge / basic use arrow-style `card_variant` strings; see each folder’s `*VariantNames.ts` and `front_to_back_plus_context.tsx` (etc.). */
 export function resolveFlashcardFaces(card: CardEntity): FlashcardFaces {
   const noteType = card.note_type?.trim().toLowerCase() ?? "";
   if (noteType === "vocab") {
@@ -26,6 +26,9 @@ export function resolveFlashcardFaces(card: CardEntity): FlashcardFaces {
     return resolveLanguageFlashcardFaces(card);
   }
   if (noteType === "knowledge") {
+    return resolveKnowledgeFlashcardFaces(card);
+  }
+  if (noteType === "basic") {
     return resolveKnowledgeFlashcardFaces(card);
   }
   return defaultFaces(card);
