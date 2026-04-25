@@ -15,6 +15,7 @@ const PATCH_KEYS = [
   "front",
   "back",
   "context",
+  "extended",
   "note_type",
   "card_variant",
   "flag",

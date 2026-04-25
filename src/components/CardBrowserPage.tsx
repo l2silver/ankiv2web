@@ -67,7 +67,9 @@ function humanizeKindLabel(raw: string): string {
 }
 
 function listPreviewLine(card: CardEntity): string {
-  const parts = [card.front, card.back, card.context].map((s) => s?.trim()).filter(Boolean) as string[];
+  const parts = [card.front, card.back, card.context, card.extended]
+    .map((s) => s?.trim())
+    .filter(Boolean) as string[];
   const t = parts[0] ?? "";
   const oneLine = t.replace(/\s+/g, " ").trim();
   if (!oneLine) return `(${card.id.slice(0, 8)}…)`;

@@ -1,6 +1,7 @@
 import type { CardEntity } from "@/features/cards/cardsSlice";
 
 import type { FlashcardFaces } from "./types";
+import { withExtendedOnBack } from "@/lib/flashcards/extendedOnBack";
 import { textOrPlaceholder } from "@/lib/flashcards/formatting";
 import { resolveKnowledgeFlashcardFaces } from "./knowledge/resolveKnowledgeFlashcard";
 import { resolveLanguageFlashcardFaces } from "./language/resolveLanguageFlashcard";
@@ -19,17 +20,17 @@ function defaultFaces(card: CardEntity): FlashcardFaces {
 /** Routes by `note_type` / `card_variant`. Language / vocab / knowledge / basic use arrow-style `card_variant` strings; see each folder’s `*VariantNames.ts` and `front_to_back_plus_context.tsx` (etc.). */
 export function resolveFlashcardFaces(card: CardEntity): FlashcardFaces {
   const noteType = card.note_type?.trim().toLowerCase() ?? "";
+  let faces: FlashcardFaces;
   if (noteType === "vocab") {
-    return resolveVocabFlashcardFaces(card);
+    faces = resolveVocabFlashcardFaces(card);
+  } else if (noteType === "language") {
+    faces = resolveLanguageFlashcardFaces(card);
+  } else if (noteType === "knowledge") {
+    faces = resolveKnowledgeFlashcardFaces(card);
+  } else if (noteType === "basic") {
+    faces = resolveKnowledgeFlashcardFaces(card);
+  } else {
+    faces = defaultFaces(card);
   }
-  if (noteType === "language") {
-    return resolveLanguageFlashcardFaces(card);
-  }
-  if (noteType === "knowledge") {
-    return resolveKnowledgeFlashcardFaces(card);
-  }
-  if (noteType === "basic") {
-    return resolveKnowledgeFlashcardFaces(card);
-  }
-  return defaultFaces(card);
+  return { front: faces.front, back: withExtendedOnBack(card, faces.back) };
 }

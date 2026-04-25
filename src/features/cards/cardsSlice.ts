@@ -26,6 +26,8 @@ export type CardEntity = {
   back?: string;
   /** Extra context text (optional; matches deck import / legacy Anki `Context`). */
   context?: string;
+  /** Note-level text not shown on default vocab faces (deck import / reference). */
+  extended?: string;
   /** Deck generator / model label (e.g. language, vocab). */
   note_type?: string;
   /** Per-note template within `note_type` (wire string; often snake_case, e.g. language `front->back+context`). */

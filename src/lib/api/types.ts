@@ -18,6 +18,7 @@ export type SyncPatchCard = {
   front?: string;
   back?: string;
   context?: string;
+  extended?: string;
   note_type?: string;
   card_variant?: string;
   flag?: boolean;
