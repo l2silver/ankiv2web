@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
@@ -99,6 +99,27 @@ const CUSTOM_DUE_TIERS = [
 
 const CUSTOM_DUE_INITIAL_TIER = CUSTOM_DUE_TIERS.length - 1;
 const MS_PER_DAY = 86_400_000;
+
+function seededOrderKey(seed: string, cardId: string): number {
+  const payload = `${seed}\0${cardId}`;
+  let h = 2166136261;
+  for (let i = 0; i < payload.length; i++) {
+    h ^= payload.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function sessionSeedString(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // ignore
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function formatCustomDuePreview(days: number, nowMs: number): string {
   if (days <= 0) return "Due now";
@@ -246,14 +267,18 @@ export function StudySession({ deckPath }: Props) {
     };
   }, []);
 
+  const [studyOrderSeed, setStudyOrderSeed] = useState(() => sessionSeedString());
+
   const { dueAllIds, queue } = useMemo(() => {
     void dueClock;
     const nowMs = Date.now();
-    return {
-      dueAllIds: dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "all"),
-      queue: dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard"),
-    };
-  }, [byId, allIds, deckPath, dueClock]);
+    const dueAllIds = dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "all");
+    const rawQueue = dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard");
+    const queue = [...rawQueue].sort(
+      (a, b) => seededOrderKey(studyOrderSeed, a) - seededOrderKey(studyOrderSeed, b),
+    );
+    return { dueAllIds, queue };
+  }, [byId, allIds, deckPath, dueClock, studyOrderSeed]);
 
   const crosswordOnlyDue = dueAllIds.length > 0 && queue.length === 0;
 
@@ -270,6 +295,7 @@ export function StudySession({ deckPath }: Props) {
   useEffect(() => {
     setAnsweredInSession(0);
     setRevealed(false);
+    setStudyOrderSeed(sessionSeedString());
   }, [deckPath]);
 
   useEffect(() => {
@@ -280,6 +306,11 @@ export function StudySession({ deckPath }: Props) {
 
   const currentId = queue.length > 0 ? queue[0] : undefined;
   const card = currentId ? byId[currentId] : undefined;
+
+  // Prevent flashing the previous card’s "revealed" UI on the next card.
+  useLayoutEffect(() => {
+    setRevealed(false);
+  }, [currentId]);
 
   const faces = useMemo(() => {
     if (!card) {
@@ -320,11 +351,11 @@ export function StudySession({ deckPath }: Props) {
       if (!card || gradingLockRef.current) return;
       gradingLockRef.current = true;
       setIsGrading(true);
+      setRevealed(false);
       const nowMs = Date.now();
       const fields = scheduleAfterReview(card, grade, nowMs);
       try {
         await dispatch(markFlashcardReviewDeferSiblingDuesLocal({ gradedId: card.id, fields, nowMs })).unwrap();
-        setRevealed(false);
         setAnsweredInSession((n) => n + 1);
       } finally {
         gradingLockRef.current = false;
@@ -339,6 +370,7 @@ export function StudySession({ deckPath }: Props) {
       if (!card || gradingLockRef.current) return;
       gradingLockRef.current = true;
       setIsGrading(true);
+      setRevealed(false);
       const nowMs = Date.now();
       const due_at = new Date(nowMs + daysFromNow * MS_PER_DAY).toISOString();
       const interval_days = daysFromNow;
@@ -355,7 +387,6 @@ export function StudySession({ deckPath }: Props) {
             },
           }),
         ).unwrap();
-        setRevealed(false);
         setAnsweredInSession((n) => n + 1);
       } finally {
         gradingLockRef.current = false;
@@ -531,7 +562,9 @@ export function StudySession({ deckPath }: Props) {
             </button>
           </div>
         </div>
-        <div className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">{faces.front}</div>
+        <div key={`front-${currentId ?? ""}`} className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">
+          {faces.front}
+        </div>
 
         {!revealed ? (
           <div className="mt-8">
@@ -548,30 +581,43 @@ export function StudySession({ deckPath }: Props) {
           <>
             <div className="my-8 border-t border-zinc-800" />
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Answer</p>
-            <div className="mt-3 min-h-[4rem] text-lg leading-relaxed text-zinc-100">{faces.back}</div>
+            <div
+              key={`back-${currentId ?? ""}`}
+              className="mt-3 min-h-[4rem] text-lg leading-relaxed text-zinc-100"
+            >
+              {faces.back}
+            </div>
           </>
         )}
 
         {revealed ? (
-          <div className="mt-8">
-            <p className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {GRADE_ROWS.map(({ grade, label, className }) => (
-                <button
-                  key={grade}
-                  type="button"
-                  disabled={isGrading}
-                  onClick={() => void submitGrade(grade)}
-                  className={`flex flex-col items-stretch rounded-xl border px-3 py-3 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${className}`}
-                >
-                  <span>{label}</span>
-                  <span className="mt-1 text-xs font-normal tabular-nums opacity-80">
-                    {hintNowMs ? intervalHintForGrade(card, grade, hintNowMs) : "—"}
-                  </span>
-                </button>
-              ))}
+          <>
+            {/* Spacer so sticky footer doesn’t cover content */}
+            <div className="h-6" />
+            <div className="-mx-6 mt-8 border-t border-zinc-800 sm:-mx-8" />
+            <div className="sticky bottom-0 -mx-6 bg-zinc-950/80 px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur sm:-mx-8 sm:px-8">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
+              <div className="flex gap-2">
+                {GRADE_ROWS.map(({ grade, label, className }) => (
+                  <button
+                    key={grade}
+                    type="button"
+                    disabled={isGrading}
+                    onClick={() => void submitGrade(grade)}
+                    className={`flex min-w-0 flex-1 flex-col items-stretch rounded-xl border px-2.5 py-2 text-left text-[12px] font-semibold leading-tight transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50 ${className}`}
+                  >
+                    <span className="whitespace-nowrap">{label}</span>
+                    <span className="mt-0.5 whitespace-nowrap text-[10px] font-normal tabular-nums opacity-80">
+                      {hintNowMs ? intervalHintForGrade(card, grade, hintNowMs) : "—"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-zinc-600">
+                Keys 1–4 = Again / Hard / Good / Easy
+              </p>
             </div>
-            <p className="mt-3 text-xs text-zinc-600">Keys 1–4 = Again / Hard / Good / Easy · Space or Enter still shows the answer</p>
+
             {currentId ? (
               <CustomDueControl
                 key={currentId}
@@ -580,7 +626,7 @@ export function StudySession({ deckPath }: Props) {
                 onApply={submitCustomDue}
               />
             ) : null}
-          </div>
+          </>
         ) : null}
 
         <div className="mt-8">

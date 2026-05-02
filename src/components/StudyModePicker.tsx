@@ -47,6 +47,19 @@ export function StudyModePicker({ deckPath }: Props) {
             <span className="mt-1 block text-sm text-zinc-500">Crossword-style practice (in progress).</span>
           </button>
         </li>
+        <li>
+          <button
+            type="button"
+            onClick={() => router.push(`/study?deck=${q}&mode=jeopardy`)}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-900/40 px-5 py-4 text-left transition hover:border-[#4169e8]/70 hover:bg-zinc-900/65 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+          >
+            <span className="text-base font-semibold text-zinc-100">Jeopardy</span>
+            <span className="mt-1 block text-sm text-zinc-500">
+              Five difficulty columns × six dollar clues; pick squares, drill like flashcards, return to the board after
+              you grade.
+            </span>
+          </button>
+        </li>
       </ul>
     </div>
   );

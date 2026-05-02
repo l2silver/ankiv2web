@@ -6,10 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 import { CrosswordGameStudy } from "@/components/CrosswordGameStudy";
+import { JeopardyGameStudy } from "@/components/JeopardyGameStudy";
 import { StudyModePicker } from "@/components/StudyModePicker";
 import { StudySession } from "@/components/StudySession";
 
-const STUDY_MODES = ["flashcard", "crossword"] as const;
+const STUDY_MODES = ["flashcard", "crossword", "jeopardy"] as const;
 type StudyMode = (typeof STUDY_MODES)[number];
 
 function isStudyMode(value: string | null): value is StudyMode {
@@ -28,6 +29,8 @@ function StudyInner() {
         <StudySession deckPath={deck} />
       ) : deck && mode === "crossword" ? (
         <CrosswordGameStudy deckPath={deck} />
+      ) : deck && mode === "jeopardy" ? (
+        <JeopardyGameStudy deckPath={deck} />
       ) : deck ? (
         <StudyModePicker deckPath={deck} />
       ) : (
