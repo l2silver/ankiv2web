@@ -79,8 +79,16 @@ export function JeopardyGameStudy({ deckPath }: Props) {
   const dispatch = useAppDispatch();
   const { byId, allIds } = useAppSelector((s) => s.cards);
 
+  /** False until hydrateFromIDB settles so we don't lock livePack before draft cards appear in Redux. */
+  const [idbHydrated, setIdbHydrated] = useState(false);
   useEffect(() => {
-    void dispatch(hydrateFromIDB());
+    setIdbHydrated(false);
+    void dispatch(hydrateFromIDB())
+      .unwrap()
+      .catch(() => undefined)
+      .finally(() => {
+        setIdbHydrated(true);
+      });
   }, [dispatch]);
 
   const [dueClock, setDueClock] = useState(0);
@@ -102,8 +110,6 @@ export function JeopardyGameStudy({ deckPath }: Props) {
     return jeopardySourceCardIdsForDeck(byId, allIds, deckPath, nowMs);
   }, [byId, allIds, deckPath, dueClock]);
 
-  const persistedDraft = useMemo(() => loadJeopardyDraft(deckPath), [deckPath]);
-
   const [phase, setPhase] = useState<"board" | "clue">("board");
   const [activeClue, setActiveClue] = useState<JeopardyCellPlacement | null>(null);
   const [frozenSourceIds, setFrozenSourceIds] = useState<string[] | null>(null);
@@ -115,8 +121,18 @@ export function JeopardyGameStudy({ deckPath }: Props) {
   /** Good/Easy = win ✓ · Again/Hard = loss ✕ (persisted with draft for redo). */
   const [clearedOutcomes, setClearedOutcomes] = useState<Record<string, JeopardyClearOutcome>>(() => ({}));
 
+  /** Locked once per visit so schedules / stats updates do not reshuffle squares mid-round. */
+  const [frozenPlacements, setFrozenPlacements] = useState<JeopardyCellPlacement[] | null>(null);
+
+  /** Skip once per mount: initial load must not wipe draft-derived state before layout restore runs. */
+  const skipInitialDeckResetRef = useRef(true);
   useEffect(() => {
+    if (skipInitialDeckResetRef.current) {
+      skipInitialDeckResetRef.current = false;
+      return;
+    }
     setFrozenSourceIds(null);
+    setFrozenPlacements(null);
     setPhase("board");
     setActiveClue(null);
     setRevealed(false);
@@ -130,13 +146,16 @@ export function JeopardyGameStudy({ deckPath }: Props) {
   useLayoutEffect(() => {
     if (frozenSourceIds !== null) return;
 
-    const d = persistedDraft;
+    const d = loadJeopardyDraft(deckPath);
+
     if (d?.v === 1 && Array.isArray(d.sourceCardIds) && d.sourceCardIds.length > 0) {
-      const usable = d.sourceCardIds.filter((id) => Boolean(byId[id]));
-      if (usable.length > 0) {
-        const pl = buildJeopardyPlacements(usable, byId);
+      const draftCardMissingFromStore = d.sourceCardIds.some((id) => !byId[id]);
+      if (draftCardMissingFromStore && !idbHydrated) return;
+
+      if (!draftCardMissingFromStore) {
+        const pl = buildJeopardyPlacements(d.sourceCardIds, byId);
         if (placementsFingerprint(pl) === d.placementsFingerprint) {
-          setFrozenSourceIds(usable);
+          setFrozenSourceIds([...d.sourceCardIds]);
           setUsingNotDueFallback(d.usingNotDueFallback);
           return;
         }
@@ -144,18 +163,13 @@ export function JeopardyGameStudy({ deckPath }: Props) {
     }
 
     if (livePack.sourceCardIds.length === 0) return;
+    const allLiveKnown = livePack.sourceCardIds.every((id) => Boolean(byId[id]));
+    if (!allLiveKnown) return;
     setFrozenSourceIds([...livePack.sourceCardIds]);
     setUsingNotDueFallback(livePack.usingNotDueFallback);
-  }, [byId, livePack, frozenSourceIds, persistedDraft]);
+  }, [byId, deckPath, idbHydrated, livePack, frozenSourceIds]);
 
   const sourceCardIds = frozenSourceIds ?? livePack.sourceCardIds;
-
-  /** Locked once per visit so schedules / stats updates do not reshuffle squares mid-round. */
-  const [frozenPlacements, setFrozenPlacements] = useState<JeopardyCellPlacement[] | null>(null);
-
-  useEffect(() => {
-    setFrozenPlacements(null);
-  }, [deckPath]);
 
   useLayoutEffect(() => {
     if (!frozenSourceIds || frozenPlacements !== null) return;
