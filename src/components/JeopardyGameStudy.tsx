@@ -649,26 +649,34 @@ export function JeopardyGameStudy({ deckPath }: Props) {
       ) : null}
 
       <div className="mt-8 overflow-x-auto">
-        <div className="min-w-[320px]" style={{ minWidth: JEOPARDY_COL_COUNT * 110 }}>
+        {/* Narrow columns below sm (~55px/col), desktop ~110px/col */}
+        <div className="min-w-[275px] sm:min-w-[550px]">
           {/* Column headers */}
-          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${JEOPARDY_COL_COUNT}, minmax(0,1fr))` }}>
+          <div
+            className="grid gap-1 sm:gap-2"
+            style={{ gridTemplateColumns: `repeat(${JEOPARDY_COL_COUNT}, minmax(0,1fr))` }}
+          >
             {Array.from({ length: JEOPARDY_COL_COUNT }, (_, c) => (
               <div
                 key={c}
-                className="rounded-t-lg border border-b-0 border-indigo-700/70 bg-indigo-950/70 px-2 py-3 text-center shadow-[inset_0_-2px_0_rgba(30,58,138,0.5)]"
+                className="rounded-t-lg border border-b-0 border-indigo-700/70 bg-indigo-950/70 px-1 py-1.5 text-center shadow-[inset_0_-2px_0_rgba(30,58,138,0.5)] sm:px-2 sm:py-3"
               >
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-100/95">Level {c + 1}</p>
-                <p className="mt-1 text-[9px] text-indigo-300/80">{c === 0 ? "Easiest band" : c === JEOPARDY_COL_COUNT - 1 ? "Hardest band" : "← →"}</p>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-indigo-100/95 sm:text-[11px]">
+                  Level {c + 1}
+                </p>
+                <p className="mt-0.5 text-[7px] leading-tight text-indigo-300/80 sm:mt-1 sm:text-[9px]">
+                  {c === 0 ? "Easiest band" : c === JEOPARDY_COL_COUNT - 1 ? "Hardest band" : "← →"}
+                </p>
               </div>
             ))}
           </div>
 
           {/* Rows (Jeopardy: low money top) */}
-          <div className="grid gap-2 border border-indigo-800/70 bg-[#08124a]/90 p-2 shadow-inner rounded-b-xl">
+          <div className="grid gap-1 rounded-b-xl border border-indigo-800/70 bg-[#08124a]/90 p-1 shadow-inner sm:gap-2 sm:p-2">
             {Array.from({ length: JEOPARDY_ROW_COUNT }, (_, rowIdx) => (
               <div
                 key={rowIdx}
-                className="grid gap-2"
+                className="grid gap-1 sm:gap-2"
                 style={{ gridTemplateColumns: `repeat(${JEOPARDY_COL_COUNT}, minmax(0,1fr))` }}
               >
                 {Array.from({ length: JEOPARDY_COL_COUNT }, (_, colIdx) => {
@@ -681,7 +689,7 @@ export function JeopardyGameStudy({ deckPath }: Props) {
                     return (
                       <div
                         key={k}
-                        className="flex min-h-[4.5rem] items-center justify-center rounded-md border border-zinc-800/50 bg-zinc-950/30 text-xs text-zinc-600"
+                        className="flex min-h-[2.25rem] items-center justify-center rounded-md border border-zinc-800/50 bg-zinc-950/30 text-[10px] text-zinc-600 sm:min-h-[4.5rem] sm:text-xs"
                       >
                         —
                       </div>
@@ -709,7 +717,7 @@ export function JeopardyGameStudy({ deckPath }: Props) {
                           stake: cell.stake,
                         });
                       }}
-                      className={`flex min-h-[4.5rem] flex-col items-center justify-center rounded-md border px-2 py-3 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                      className={`flex min-h-[2.25rem] flex-col items-center justify-center rounded-md border px-1 py-1.5 text-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 sm:min-h-[4.5rem] sm:px-2 sm:py-3 ${
                         done
                           ? isLoss
                             ? "cursor-pointer border-rose-800/55 bg-rose-950/25 opacity-95 hover:bg-rose-950/40"
@@ -720,19 +728,25 @@ export function JeopardyGameStudy({ deckPath }: Props) {
                       {done ? (
                         isLoss ? (
                           <span
-                            className="text-2xl font-bold leading-none text-rose-400"
+                            className="text-base font-bold leading-none text-rose-400 sm:text-2xl"
                             title="Missed — tap to retry"
                             aria-hidden
                           >
                             ✕
                           </span>
                         ) : (
-                          <span className="text-lg text-emerald-300/90" title="Cleared — tap to replay" aria-hidden>
+                          <span
+                            className="text-sm text-emerald-300/90 sm:text-lg"
+                            title="Cleared — tap to replay"
+                            aria-hidden
+                          >
                             ✓
                           </span>
                         )
                       ) : (
-                        <span className="text-xl font-bold tabular-nums text-[#fcd34d]">${stakeForRow(rowIdx)}</span>
+                        <span className="text-sm font-bold tabular-nums text-[#fcd34d] sm:text-xl">
+                          ${stakeForRow(rowIdx)}
+                        </span>
                       )}
                     </button>
                   );
