@@ -15,6 +15,7 @@ import {
   orderedFlaggedCardIds,
   type DeckTreeNode,
 } from "@/lib/cards/deckTree";
+import { scheduleNoteKey } from "@/lib/cards/crosswordFromCard";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
 
@@ -82,6 +83,31 @@ type BrowseScope =
   | { kind: "deck"; path: string };
 
 type MobileStep = "decks" | "list" | "card";
+
+type NoteBrowseList = {
+  /** Ordered anchor card ids (one per note). */
+  anchorIds: string[];
+  /** All card ids that match scope (before grouping). */
+  scopedCardIds: string[];
+  /** Maps note key -> chosen anchor card id. */
+  noteKeyToAnchorId: Map<string, string>;
+};
+
+function buildNoteBrowseList(byId: Record<string, CardEntity>, scopedCardIds: string[]): NoteBrowseList {
+  // `scopedCardIds` is already ordered by due_at then id; choosing first-seen per note yields
+  // a stable representative and preserves "earliest due for that note" ordering.
+  const noteKeyToAnchorId = new Map<string, string>();
+  const anchorIds: string[] = [];
+  for (const id of scopedCardIds) {
+    const c = byId[id];
+    if (!c) continue;
+    const k = scheduleNoteKey(c);
+    if (noteKeyToAnchorId.has(k)) continue;
+    noteKeyToAnchorId.set(k, id);
+    anchorIds.push(id);
+  }
+  return { anchorIds, scopedCardIds, noteKeyToAnchorId };
+}
 
 function subscribeMinLg(cb: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -249,16 +275,23 @@ export function CardBrowserPage() {
     return buildDeckTree(map);
   }, [byId, allIds]);
 
-  const sortedListIds = useMemo(() => {
-    if (scope.kind === "flagged") return orderedFlaggedCardIds(byId, allIds);
-    if (scope.kind === "deck") return orderedCardIdsInDeckSubtree(byId, allIds, scope.path);
-    return [];
+  const noteList = useMemo(() => {
+    if (scope.kind === "flagged") return buildNoteBrowseList(byId, orderedFlaggedCardIds(byId, allIds));
+    if (scope.kind === "deck") return buildNoteBrowseList(byId, orderedCardIdsInDeckSubtree(byId, allIds, scope.path));
+    return buildNoteBrowseList(byId, []);
   }, [scope, byId, allIds]);
 
-  const selectedCard =
-    cardParam && byId[cardParam] && !byId[cardParam]?.deleted_at?.trim() && sortedListIds.includes(cardParam)
-      ? byId[cardParam]
-      : undefined;
+  // URL can point at any card id in-scope; we normalize to the note's anchor card id.
+  const selectedAnchorId = useMemo(() => {
+    if (!cardParam) return undefined;
+    const raw = byId[cardParam];
+    if (!raw || raw.deleted_at?.trim()) return undefined;
+    if (!noteList.scopedCardIds.includes(cardParam)) return undefined;
+    const k = scheduleNoteKey(raw);
+    return noteList.noteKeyToAnchorId.get(k);
+  }, [cardParam, byId, noteList.noteKeyToAnchorId, noteList.scopedCardIds]);
+
+  const selectedCard = selectedAnchorId ? byId[selectedAnchorId] : undefined;
 
   /** Drop invalid `card` from URL once list is known. */
   useEffect(() => {
@@ -351,7 +384,7 @@ export function CardBrowserPage() {
 
   const scopeTitle =
     scope.kind === "flagged"
-      ? "Flagged cards"
+      ? "Flagged notes"
       : scope.kind === "deck"
         ? scope.path
         : "Select a deck or Flags";
@@ -376,23 +409,23 @@ export function CardBrowserPage() {
         <span className="hidden lg:inline"> on the left</span>
         <span className="lg:hidden"> above</span>.
       </p>
-    ) : sortedListIds.length === 0 ? (
-      <p className="px-4 py-8 text-center text-sm text-zinc-500">No cards in this scope.</p>
+    ) : noteList.anchorIds.length === 0 ? (
+      <p className="px-4 py-8 text-center text-sm text-zinc-500">No notes in this scope.</p>
     ) : (
       <ul
         className="divide-y divide-zinc-800/80 p-0"
         aria-label={
           scope.kind === "flagged"
-            ? "Flagged cards"
+            ? "Flagged notes"
             : scope.kind === "deck"
-              ? `Cards in ${scope.path}`
-              : "Cards"
+              ? `Notes in ${scope.path}`
+              : "Notes"
         }
       >
-        {sortedListIds.map((id) => {
+        {noteList.anchorIds.map((id) => {
           const c = byId[id];
           if (!c) return null;
-          const active = cardParam === id;
+          const active = selectedAnchorId === id;
           return (
             <li key={id} className="list-none">
               <button
@@ -432,13 +465,13 @@ export function CardBrowserPage() {
           }`}
         >
           Flags
-          <span className="mt-0.5 block text-xs font-normal text-zinc-500">All flagged cards</span>
+          <span className="mt-0.5 block text-xs font-normal text-zinc-500">All flagged notes</span>
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-600">Decks</p>
         {deckRoots.length === 0 ? (
-          <p className="text-sm text-zinc-500">No cards to browse.</p>
+          <p className="text-sm text-zinc-500">No notes to browse.</p>
         ) : (
           <ul className="list-none space-y-2 p-0">
             {deckRoots.map((node) => (
@@ -463,7 +496,7 @@ export function CardBrowserPage() {
       <div className="border-b border-zinc-800 px-4 py-3">
         <h2 className="truncate text-sm font-semibold text-zinc-200">{scopeTitle}</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          {sortedListIds.length} card{sortedListIds.length === 1 ? "" : "s"}
+          {noteList.anchorIds.length} note{noteList.anchorIds.length === 1 ? "" : "s"}
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">{listBody}</div>
@@ -477,7 +510,7 @@ export function CardBrowserPage() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {!selectedCard ? (
-          <p className="text-sm text-zinc-500">Select a card from the list to preview both sides.</p>
+          <p className="text-sm text-zinc-500">Select a note from the list to preview both sides.</p>
         ) : (
           <article className="space-y-4">
             <p className="truncate text-[11px] text-zinc-500" title={selectedCard.deck_id?.trim() ?? ""}>
@@ -524,8 +557,8 @@ export function CardBrowserPage() {
       <header className="border-b border-zinc-800 px-4 py-3 lg:px-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">Browse cards</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">Inspect decks and flagged cards; flag changes sync like study.</p>
+            <h1 className="text-lg font-semibold tracking-tight">Browse notes</h1>
+            <p className="mt-0.5 text-xs text-zinc-500">Inspect decks and flagged notes; flag changes sync like study.</p>
           </div>
           <Link href="/" className="text-sm text-sky-400 hover:text-sky-300">
             ← Home
