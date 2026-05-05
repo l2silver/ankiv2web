@@ -249,6 +249,7 @@ const GRADE_ROWS: { grade: ReviewGrade; label: string; className: string }[] = [
 export function StudySession({ deckPath }: Props) {
   const dispatch = useAppDispatch();
   const { byId, allIds } = useAppSelector((s) => s.cards);
+  const conceptsById = useAppSelector((s) => s.concepts.byId);
 
   useEffect(() => {
     void dispatch(hydrateFromIDB());
@@ -316,8 +317,8 @@ export function StudySession({ deckPath }: Props) {
     if (!card) {
       return { front: null as ReactNode, back: null as ReactNode };
     }
-    return resolveFlashcardFaces(card);
-  }, [card]);
+    return resolveFlashcardFaces(card, { conceptsById });
+  }, [card, conceptsById]);
 
   const showAnswer = useCallback(() => setRevealed(true), []);
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, type ReactNode } from "react";
 
 import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
 import type { CardEntity } from "@/features/cards/cardsSlice";
+import { useAppSelector } from "@/lib/hooks";
 import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
 
 export function CrosswordFlashcardPopup({
@@ -17,7 +18,8 @@ export function CrosswordFlashcardPopup({
   onClose: () => void;
   title?: string;
 }) {
-  const faces = useMemo(() => resolveFlashcardFaces(card), [card]);
+  const conceptsById = useAppSelector((s) => s.concepts.byId);
+  const faces = useMemo(() => resolveFlashcardFaces(card, { conceptsById }), [card, conceptsById]);
 
   useEffect(() => {
     if (!open) return;

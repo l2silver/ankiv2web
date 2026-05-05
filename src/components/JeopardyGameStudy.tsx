@@ -78,6 +78,7 @@ function FlashcardVariantBadgeSmall({ card }: { card: CardEntity }) {
 export function JeopardyGameStudy({ deckPath }: Props) {
   const dispatch = useAppDispatch();
   const { byId, allIds } = useAppSelector((s) => s.cards);
+  const conceptsById = useAppSelector((s) => s.concepts.byId);
 
   /** False until hydrateFromIDB settles so we don't lock livePack before draft cards appear in Redux. */
   const [idbHydrated, setIdbHydrated] = useState(false);
@@ -359,8 +360,8 @@ export function JeopardyGameStudy({ deckPath }: Props) {
     if (!clueCard) {
       return { front: null as ReactNode, back: null as ReactNode };
     }
-    return resolveFlashcardFaces(clueCard);
-  }, [clueCard]);
+    return resolveFlashcardFaces(clueCard, { conceptsById });
+  }, [clueCard, conceptsById]);
 
   useLayoutEffect(() => {
     setRevealed(false);

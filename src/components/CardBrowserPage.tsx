@@ -196,7 +196,8 @@ function BrowserDeckSubtree({
 }
 
 function CardViewerBody({ card }: { card: CardEntity }) {
-  const faces = useMemo(() => resolveFlashcardFaces(card), [card]);
+  const conceptsById = useAppSelector((s) => s.concepts.byId);
+  const faces = useMemo(() => resolveFlashcardFaces(card, { conceptsById }), [card, conceptsById]);
   return (
     <div className="space-y-6">
       <div>

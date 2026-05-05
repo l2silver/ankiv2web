@@ -4,6 +4,8 @@ import type {
   CardsChangedSinceResponse,
   CardsNewIndexRequest,
   CardsNewIndexResponse,
+  ConceptsChangedSinceResponse,
+  ConceptsNewIndexResponse,
   SyncPatchRequest,
   SyncPatchResponse,
 } from "@/lib/api/types";
@@ -43,6 +45,38 @@ export async function postCardsChangedSince(
     throw new Error(text || `POST /cards/changed-since failed: ${res.status}`);
   }
   return res.json() as Promise<CardsChangedSinceResponse>;
+}
+
+export async function postConceptsNewIndex(body: CardsNewIndexRequest): Promise<ConceptsNewIndexResponse> {
+  if (isSyncPullMockEnabled()) {
+    return { concepts: [] };
+  }
+  const res = await apiFetch("/concepts/new/index", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `POST /concepts/new/index failed: ${res.status}`);
+  }
+  return res.json() as Promise<ConceptsNewIndexResponse>;
+}
+
+export async function postConceptsChangedSince(
+  body: CardsChangedSinceRequest,
+): Promise<ConceptsChangedSinceResponse> {
+  if (isSyncPullMockEnabled()) {
+    return { concepts: [], has_more: false };
+  }
+  const res = await apiFetch("/concepts/changed-since", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `POST /concepts/changed-since failed: ${res.status}`);
+  }
+  return res.json() as Promise<ConceptsChangedSinceResponse>;
 }
 
 export async function patchSync(body: SyncPatchRequest): Promise<SyncPatchResponse> {

@@ -1,9 +1,10 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
 import type { CardEntity } from "@/features/cards/cardsSlice";
+import type { ConceptEntity } from "@/features/concepts/conceptsSlice";
 
 const DB_NAME = "ankiv2";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** Card row in IndexedDB; `_dirty` means local changes not yet sent with `PATCH /sync`. */
 export type StoredCard = CardEntity & {
@@ -14,6 +15,10 @@ interface Anki2DB extends DBSchema {
   cards: {
     key: string;
     value: StoredCard;
+  };
+  concepts: {
+    key: string;
+    value: ConceptEntity;
   };
   meta: {
     key: string;
@@ -29,12 +34,15 @@ function getDb(): Promise<IDBPDatabase<Anki2DB>> {
   }
   if (!dbPromise) {
     dbPromise = openDB<Anki2DB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains("cards")) {
           db.createObjectStore("cards", { keyPath: "id" });
         }
         if (!db.objectStoreNames.contains("meta")) {
           db.createObjectStore("meta");
+        }
+        if (oldVersion < 2 && !db.objectStoreNames.contains("concepts")) {
+          db.createObjectStore("concepts", { keyPath: "id" });
         }
       },
     });
@@ -74,6 +82,22 @@ export async function idbClearDirtyMany(ids: string[]): Promise<void> {
     await tx.store.put(rest);
   }
   await tx.done;
+}
+
+export async function idbGetAllConcepts(): Promise<ConceptEntity[]> {
+  const db = await getDb();
+  return db.getAll("concepts");
+}
+
+export async function idbGetAllConceptIds(): Promise<string[]> {
+  const db = await getDb();
+  return db.getAllKeys("concepts");
+}
+
+export async function idbPutConcepts(rows: ConceptEntity[]): Promise<void> {
+  const db = await getDb();
+  const tx = db.transaction("concepts", "readwrite");
+  await Promise.all([...rows.map((c) => tx.store.put(c)), tx.done]);
 }
 
 export async function idbSetMeta(key: string, value: string): Promise<void> {

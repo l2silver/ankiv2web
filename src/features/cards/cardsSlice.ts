@@ -22,6 +22,8 @@ export type MoreQuestion = Record<string, unknown> & {
 export type CardEntity = {
   id: string;
   deck_id?: string;
+  /** Innermost enclosing concept document id (`POST /concepts/*`). */
+  concept_id?: string;
   front?: string;
   back?: string;
   /** Extra context text (optional; matches deck import / legacy Anki `Context`). */

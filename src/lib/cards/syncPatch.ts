@@ -12,6 +12,7 @@ const PATCH_KEYS = [
   "suspended",
   "buried",
   "deck_id",
+  "concept_id",
   "front",
   "back",
   "context",

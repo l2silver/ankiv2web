@@ -1,10 +1,12 @@
 import { combineReducers, configureStore } from "@reduxjs/toolkit";
 
 import cardsReducer from "@/features/cards/cardsSlice";
+import conceptsReducer from "@/features/concepts/conceptsSlice";
 import syncReducer from "@/features/sync/syncSlice";
 
 const rootReducer = combineReducers({
   cards: cardsReducer,
+  concepts: conceptsReducer,
   sync: syncReducer,
 });
 

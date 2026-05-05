@@ -80,6 +80,7 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
 
   const card: CardEntity = { id };
   const deck_id = optString(raw.deck_id);
+  const concept_id = optString(raw.concept_id);
   const front = optString(raw.front);
   const back = optString(raw.back);
   const context = optString(raw.context);
@@ -92,6 +93,7 @@ export function normalizeServerCard(raw: Record<string, unknown>): CardEntity | 
   const created_at = optString(raw.created_at);
   const updated_at = optString(raw.updated_at);
   if (deck_id !== undefined) card.deck_id = deck_id;
+  if (concept_id !== undefined) card.concept_id = concept_id;
   if (front !== undefined) card.front = front;
   if (back !== undefined) card.back = back;
   if (context !== undefined) card.context = context;

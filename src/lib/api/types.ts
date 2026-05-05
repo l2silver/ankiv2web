@@ -15,6 +15,7 @@ export type SyncPatchCard = {
   suspended?: boolean;
   buried?: boolean;
   deck_id?: string;
+  concept_id?: string;
   front?: string;
   back?: string;
   context?: string;
@@ -49,6 +50,16 @@ export type CardsChangedSinceRequest = {
 
 export type CardsChangedSinceResponse = {
   cards: Record<string, unknown>[];
+  has_more: boolean;
+  next_after_sequence?: number;
+};
+
+export type ConceptsNewIndexResponse = {
+  concepts: Record<string, unknown>[];
+};
+
+export type ConceptsChangedSinceResponse = {
+  concepts: Record<string, unknown>[];
   has_more: boolean;
   next_after_sequence?: number;
 };

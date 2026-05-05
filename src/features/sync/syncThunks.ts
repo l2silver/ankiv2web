@@ -1,7 +1,13 @@
-import { createAsyncThunk } from "@reduxjs/toolkit";
+import { createAsyncThunk, type UnknownAction } from "@reduxjs/toolkit";
 
 import { isApiReadyForRequests, isPullAvailable, isSyncPullMockEnabled } from "@/lib/api/client";
-import { patchSync, postCardsChangedSince, postCardsNewIndex } from "@/lib/api/sync";
+import {
+  patchSync,
+  postCardsChangedSince,
+  postCardsNewIndex,
+  postConceptsChangedSince,
+  postConceptsNewIndex,
+} from "@/lib/api/sync";
 import type { CardsChangedSinceRequest } from "@/lib/api/types";
 import { deferDueByOneDay, noteVariantCardIds } from "@/lib/cards/crosswordFromCard";
 import { computeNoteVariantScheduleRealignments } from "@/lib/cards/realignNoteVariantSchedules";
@@ -15,6 +21,12 @@ import {
   upsertMany,
   type CardEntity,
 } from "@/features/cards/cardsSlice";
+import {
+  hydrateConcepts,
+  resetConcepts,
+  upsertManyConcepts,
+  type ConceptEntity,
+} from "@/features/concepts/conceptsSlice";
 type CardSchedulePatch = Partial<Omit<CardEntity, "id" | "dirty">>;
 
 type CardsSlicePick = { cards: { byId: Record<string, CardEntity>; allIds: string[] } };
@@ -22,20 +34,76 @@ import {
   idbClearDirtyMany,
   idbDeleteEntireDatabase,
   idbGetAllCards,
+  idbGetAllConceptIds,
+  idbGetAllConcepts,
   idbGetAllIds,
   idbGetMeta,
   idbPutCard,
   idbPutCards,
+  idbPutConcepts,
   idbSetMeta,
   type StoredCard,
 } from "@/lib/db/cardsDb";
 import { entityToStored, storedToEntity } from "@/lib/db/storedCard";
+import { normalizeServerConcept } from "@/lib/concepts/normalizeServerConcept";
 
 const CONTENT_SEQ_META_KEY = "contentSyncSinceSequence";
+const CONCEPT_SEQ_META_KEY = "conceptContentSyncSinceSequence";
 
 function parseContentSeqMeta(s: string | null | undefined): number {
   const n = Number.parseInt(s ?? "0", 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseConceptSeqMeta(s: string | null | undefined): number {
+  const n = Number.parseInt(s ?? "0", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/** Pull new concept docs + page `POST /concepts/changed-since` (separate sequence from cards). */
+export async function pullConceptSync(dispatch: (action: UnknownAction) => unknown): Promise<void> {
+  if (!isPullAvailable() || isSyncPullMockEnabled()) {
+    return;
+  }
+
+  const knownIds = await idbGetAllConceptIds();
+  const { concepts: newConcepts } = await postConceptsNewIndex({ ids: knownIds });
+  const batch: ConceptEntity[] = [];
+  const reduxBatch: ConceptEntity[] = [];
+  for (const raw of newConcepts) {
+    const e = normalizeServerConcept(raw as Record<string, unknown>);
+    if (!e) continue;
+    batch.push(e);
+    reduxBatch.push(e);
+  }
+  if (batch.length > 0) await idbPutConcepts(batch);
+  if (reduxBatch.length > 0) dispatch(upsertManyConcepts(reduxBatch));
+
+  const base = parseConceptSeqMeta(await idbGetMeta(CONCEPT_SEQ_META_KEY));
+  let afterSeq: number | undefined;
+  let cursorFloor = base;
+  for (;;) {
+    const body: CardsChangedSinceRequest =
+      afterSeq !== undefined ? { since_sequence: base, after_sequence: afterSeq } : { since_sequence: base };
+    const res = await postConceptsChangedSince(body);
+    const chBatch: ConceptEntity[] = [];
+    const chRedux: ConceptEntity[] = [];
+    for (const raw of res.concepts) {
+      const e = normalizeServerConcept(raw as Record<string, unknown>);
+      if (!e) continue;
+      chBatch.push(e);
+      chRedux.push(e);
+    }
+    if (chBatch.length > 0) await idbPutConcepts(chBatch);
+    if (chRedux.length > 0) dispatch(upsertManyConcepts(chRedux));
+    if (res.next_after_sequence != null && res.next_after_sequence > 0) {
+      cursorFloor = Math.max(cursorFloor, res.next_after_sequence);
+    }
+    if (!res.has_more) break;
+    if (res.next_after_sequence == null || res.next_after_sequence <= 0) break;
+    afterSeq = res.next_after_sequence;
+  }
+  await idbSetMeta(CONCEPT_SEQ_META_KEY, String(Math.max(base, cursorFloor)));
 }
 
 /** True if the server row should replace the local row (non-dirty); prefers `content_change_seq` then `updated_at`. */
@@ -70,6 +138,7 @@ export const clearIndexedDbCards = createAsyncThunk(
     try {
       await idbDeleteEntireDatabase();
       dispatch(resetCards());
+      dispatch(resetConcepts());
       await dispatch(hydrateFromIDB()).unwrap();
       if (canPull) {
         await dispatch(pullNewCards()).unwrap();
@@ -89,6 +158,8 @@ export const hydrateFromIDB = createAsyncThunk(
       const rows = await idbGetAllCards();
       const entities = rows.map(storedToEntity);
       dispatch(hydrateCards(entities));
+      const concepts = await idbGetAllConcepts();
+      dispatch(hydrateConcepts(concepts));
       const [lastPullAt, lastPushAt] = await Promise.all([
         idbGetMeta("lastPullAt"),
         idbGetMeta("lastPushAt"),
@@ -136,6 +207,7 @@ export const pullNewCards = createAsyncThunk(
       if (toStore.length) await idbPutCards(toStore);
       if (toRedux.length) dispatch(upsertMany(toRedux));
       await idbBumpContentSeqFromMerged(toRedux);
+      await pullConceptSync(dispatch);
       const at = new Date().toISOString();
       await idbSetMeta("lastPullAt", at);
       return { pulled: toRedux.length, at };
@@ -196,6 +268,7 @@ export const pullContentChangesSince = createAsyncThunk(
         afterSeq = res.next_after_sequence;
       }
       await idbSetMeta(CONTENT_SEQ_META_KEY, String(Math.max(base, cursorFloor)));
+      await pullConceptSync(dispatch);
       const at = new Date().toISOString();
       await idbSetMeta("lastPullAt", at);
       return { pulled, at };
