@@ -567,18 +567,7 @@ export function StudySession({ deckPath }: Props) {
           {faces.front}
         </div>
 
-        {!revealed ? (
-          <div className="mt-8">
-            <button
-              type="button"
-              onClick={showAnswer}
-              className="rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
-            >
-              Show answer
-            </button>
-            <p className="mt-3 text-xs text-zinc-600">Tip: press Space or Enter</p>
-          </div>
-        ) : (
+        {revealed ? (
           <>
             <div className="my-8 border-t border-zinc-800" />
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Answer</p>
@@ -589,14 +578,26 @@ export function StudySession({ deckPath }: Props) {
               {faces.back}
             </div>
           </>
-        )}
+        ) : null}
 
-        {revealed ? (
-          <>
-            {/* Spacer so sticky footer doesn’t cover content */}
-            <div className="h-6" />
-            <div className="-mx-6 mt-8 border-t border-zinc-800 sm:-mx-8" />
-            <div className="sticky bottom-0 -mx-6 bg-zinc-950/80 px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur sm:-mx-8 sm:px-8">
+        {/* Spacer so sticky footer doesn’t cover content */}
+        <div className="h-6" />
+        <div className="-mx-6 mt-8 border-t border-zinc-800 sm:-mx-8" />
+        <div className="sticky bottom-0 -mx-6 bg-zinc-950/80 px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur sm:-mx-8 sm:px-8">
+          {!revealed ? (
+            <>
+              <button
+                type="button"
+                disabled={isGrading}
+                onClick={showAnswer}
+                className="w-full rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
+              >
+                Show answer
+              </button>
+              <p className="mt-2 text-[11px] text-zinc-600">Tip: press Space or Enter</p>
+            </>
+          ) : (
+            <>
               <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
               <div className="flex gap-2">
                 {GRADE_ROWS.map(({ grade, label, className }) => (
@@ -617,17 +618,17 @@ export function StudySession({ deckPath }: Props) {
               <p className="mt-2 text-[11px] text-zinc-600">
                 Keys 1–4 = Again / Hard / Good / Easy
               </p>
-            </div>
+            </>
+          )}
+        </div>
 
-            {currentId ? (
-              <CustomDueControl
-                key={currentId}
-                disabled={isGrading}
-                nowMs={hintNowMs || Date.now()}
-                onApply={submitCustomDue}
-              />
-            ) : null}
-          </>
+        {revealed && currentId ? (
+          <CustomDueControl
+            key={currentId}
+            disabled={isGrading}
+            nowMs={hintNowMs || Date.now()}
+            onApply={submitCustomDue}
+          />
         ) : null}
 
         <div className="mt-8">
