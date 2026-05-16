@@ -348,6 +348,20 @@ export function StudySession({ deckPath }: Props) {
     setAnsweredInSession((n) => n + 1);
   }, [card, dispatch]);
 
+  const suspendCard = useCallback(async () => {
+    if (!card || gradingLockRef.current) return;
+    if (
+      !window.confirm(
+        "Suspend this card variant?\n\nOnly this layout will be hidden from study; other variants of the same note stay active. Changes sync when you push or when the tab hides.",
+      )
+    ) {
+      return;
+    }
+    await dispatch(markCardDirtyLocal({ id: card.id, fields: { suspended: true } })).unwrap();
+    setRevealed(false);
+    setAnsweredInSession((n) => n + 1);
+  }, [card, dispatch]);
+
   const submitGrade = useCallback(
     async (grade: ReviewGrade) => {
       if (!card || gradingLockRef.current) return;
@@ -544,6 +558,15 @@ export function StudySession({ deckPath }: Props) {
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Question</p>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isGrading}
+              onClick={() => void suspendCard()}
+              className="inline-flex items-center rounded-lg border border-zinc-600 bg-zinc-950/40 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-900/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
+              title="Hide this card variant from study"
+            >
+              Suspend
+            </button>
             <button
               type="button"
               disabled={isGrading}
