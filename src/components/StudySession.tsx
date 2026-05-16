@@ -509,8 +509,12 @@ export function StudySession({ deckPath }: Props) {
   const totalThisSession = answeredInSession + queue.length;
   const remaining = queue.length - 1;
 
+  /** Space for fixed study footer (~show answer vs grade buttons) so content can scroll above it. */
+  const studyFooterReserveClass =
+    "pb-[max(13rem,calc(env(safe-area-inset-bottom)+11.5rem))]";
+
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className={`relative mx-auto max-w-2xl ${studyFooterReserveClass}`}>
       <p className="text-sm text-zinc-500">
         <Link href="/" className="text-sky-400 hover:text-sky-300">
           ← Decks
@@ -580,10 +584,30 @@ export function StudySession({ deckPath }: Props) {
           </>
         ) : null}
 
-        {/* Spacer so sticky footer doesn’t cover content */}
-        <div className="h-6" />
-        <div className="-mx-6 mt-8 border-t border-zinc-800 sm:-mx-8" />
-        <div className="sticky bottom-0 -mx-6 bg-zinc-950/80 px-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 backdrop-blur sm:-mx-8 sm:px-8">
+        {revealed && currentId ? (
+          <CustomDueControl
+            key={currentId}
+            disabled={isGrading}
+            nowMs={hintNowMs || Date.now()}
+            onApply={submitCustomDue}
+          />
+        ) : null}
+
+        <div className="mt-8">
+          <NoteContentFieldsForm anchorCard={card} disabled={isGrading} />
+        </div>
+
+        <div className="mt-6 flex justify-end sm:mt-8">
+          <FlashcardVariantBadge
+            noteType={card.note_type}
+            storedCardVariant={card.card_variant}
+            effectiveCardVariant={getEffectiveCardVariant(card)}
+          />
+        </div>
+      </article>
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50">
+        <div className="pointer-events-auto mx-auto w-full max-w-2xl border-t border-zinc-700/90 bg-zinc-950/90 px-6 pt-3 shadow-[0_-12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {!revealed ? (
             <>
               <button
@@ -621,28 +645,7 @@ export function StudySession({ deckPath }: Props) {
             </>
           )}
         </div>
-
-        {revealed && currentId ? (
-          <CustomDueControl
-            key={currentId}
-            disabled={isGrading}
-            nowMs={hintNowMs || Date.now()}
-            onApply={submitCustomDue}
-          />
-        ) : null}
-
-        <div className="mt-8">
-          <NoteContentFieldsForm anchorCard={card} disabled={isGrading} />
-        </div>
-
-        <div className="mt-6 flex justify-end sm:mt-8">
-          <FlashcardVariantBadge
-            noteType={card.note_type}
-            storedCardVariant={card.card_variant}
-            effectiveCardVariant={getEffectiveCardVariant(card)}
-          />
-        </div>
-      </article>
+      </div>
     </div>
   );
 }
