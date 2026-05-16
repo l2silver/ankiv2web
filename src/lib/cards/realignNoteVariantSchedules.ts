@@ -9,6 +9,7 @@ export type NoteSchedulePatch = Pick<
   "due_at" | "interval_days" | "ease" | "reps" | "lapses" | "last_reviewed_at"
 > & {
   relearn_step?: number;
+  lapse_again_days?: number;
 };
 
 function dueAtMs(c: CardEntity): number {
@@ -46,6 +47,7 @@ export function schedulePatchFromCard(lead: CardEntity): NoteSchedulePatch {
     lapses: lead.lapses,
     last_reviewed_at: lead.last_reviewed_at,
     relearn_step: lead.relearn_step,
+    lapse_again_days: lead.lapse_again_days,
   };
 }
 
@@ -61,7 +63,8 @@ export function noteScheduleMatchesPatch(card: CardEntity, patch: NoteSchedulePa
     (card.reps ?? 0) === (patch.reps ?? 0) &&
     (card.lapses ?? 0) === (patch.lapses ?? 0) &&
     (card.last_reviewed_at ?? "") === (patch.last_reviewed_at ?? "") &&
-    (card.relearn_step ?? undefined) === (patch.relearn_step ?? undefined)
+    (card.relearn_step ?? undefined) === (patch.relearn_step ?? undefined) &&
+    (card.lapse_again_days ?? undefined) === (patch.lapse_again_days ?? undefined)
   );
 }
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
 import { hydrateFromIDB, markCardDirtyLocal, markFlashcardReviewDeferSiblingDuesLocal } from "@/features/sync/syncThunks";
 import { dueCardIdsForDeck } from "@/lib/cards/deckTree";
+import { maxDueDaysFromNow } from "@/lib/cards/dueCeiling";
 import {
   intervalHintForGrade,
   scheduleAfterReview,
@@ -373,8 +374,9 @@ export function StudySession({ deckPath }: Props) {
       setIsGrading(true);
       setRevealed(false);
       const nowMs = Date.now();
-      const due_at = new Date(nowMs + daysFromNow * MS_PER_DAY).toISOString();
-      const interval_days = daysFromNow;
+      const cappedDays = Math.min(daysFromNow, maxDueDaysFromNow(nowMs));
+      const due_at = new Date(nowMs + cappedDays * MS_PER_DAY).toISOString();
+      const interval_days = cappedDays;
       try {
         await dispatch(
           markFlashcardReviewDeferSiblingDuesLocal({

@@ -5,7 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
-import { hydrateFromIDB, markCardDirtyLocal } from "@/features/sync/syncThunks";
+import {
+  BROWSE_RANDOM_DUE_MAX_DAYS,
+  clampBrowseDueDayRange,
+} from "@/lib/cards/randomDueInRange";
+import {
+  hydrateFromIDB,
+  markBulkLapseAgainDaysLocal,
+  markBulkRandomDueDatesLocal,
+  markCardDirtyLocal,
+} from "@/features/sync/syncThunks";
+import { clampLapseAgainDays } from "@/lib/cards/lapseAgain";
 import type { CardEntity } from "@/features/cards/cardsSlice";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 import {
@@ -15,6 +25,9 @@ import {
   orderedFlaggedCardIds,
   type DeckTreeNode,
 } from "@/lib/cards/deckTree";
+import { filterCardIdsByBrowseText } from "@/lib/cards/browseTextSearch";
+import { browseGradeHints, buildBrowseScheduleSideMeta } from "@/lib/cards/browseScheduleDisplay";
+import { filterNeverAnsweredCardIds, isNeverAnswered } from "@/lib/cards/reviewStatus";
 import { scheduleNoteKey } from "@/lib/cards/crosswordFromCard";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
@@ -92,6 +105,17 @@ type NoteBrowseList = {
   /** Maps note key -> chosen anchor card id. */
   noteKeyToAnchorId: Map<string, string>;
 };
+
+function applyBrowseScopeToParams(
+  next: URLSearchParams,
+  opts: { filterQ: string | null; deckQ: string | null; neverAnswered: boolean; textQ?: string },
+) {
+  if (opts.filterQ === "flagged") next.set("filter", "flagged");
+  else if (opts.deckQ?.trim()) next.set("deck", opts.deckQ.trim());
+  if (opts.neverAnswered) next.set("neverAnswered", "1");
+  const t = opts.textQ?.trim();
+  if (t) next.set("q", t);
+}
 
 function buildNoteBrowseList(byId: Record<string, CardEntity>, scopedCardIds: string[]): NoteBrowseList {
   // `scopedCardIds` is already ordered by due_at then id; choosing first-seen per note yields
@@ -221,6 +245,101 @@ function BrowserDeckSubtree({
   );
 }
 
+function BrowseScheduleAside({ card, nowMs }: { card: CardEntity; nowMs: number }) {
+  const meta = useMemo(() => buildBrowseScheduleSideMeta(card, nowMs), [card, nowMs]);
+  return (
+    <div
+      className="flex w-[4.75rem] shrink-0 flex-col justify-center gap-0.5 border-l border-zinc-800/60 py-3 pr-3 pl-2 text-right leading-snug"
+      aria-label={`Due ${meta.dueRelative}; Again ${meta.againHint}`}
+    >
+      <p
+        className={`text-[10px] font-medium tabular-nums ${meta.isOverdue ? "text-amber-400/95" : "text-zinc-400"}`}
+        title={meta.dueTitle}
+      >
+        {meta.dueRelative}
+      </p>
+      <p
+        className="text-[10px] tabular-nums text-zinc-500"
+        title={
+          meta.hasCustomLapseAgain
+            ? `Again interval if graded now (custom: ${meta.lapseAgainLabel})`
+            : "Again interval if graded now"
+        }
+      >
+        ↻ {meta.againHint}
+      </p>
+      {meta.stateLine ? (
+        <p className="text-[9px] leading-tight text-zinc-600" title="Scheduling state">
+          {meta.stateLine}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BrowseSchedulePanel({ card, nowMs }: { card: CardEntity; nowMs: number }) {
+  const meta = useMemo(() => buildBrowseScheduleSideMeta(card, nowMs), [card, nowMs]);
+  const gradeHints = useMemo(() => browseGradeHints(card, nowMs), [card, nowMs]);
+  const reps = card.reps ?? 0;
+  const lastReview = card.last_reviewed_at?.trim();
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-xs">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Schedule</p>
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-zinc-300">
+        <dt className="text-zinc-600">Due</dt>
+        <dd className="tabular-nums" title={meta.dueTitle}>
+          <span className={meta.isOverdue ? "text-amber-300/95" : undefined}>{meta.dueRelative}</span>
+          {card.due_at?.trim() ? (
+            <span className="mt-0.5 block text-[10px] font-normal text-zinc-500">{meta.dueTitle}</span>
+          ) : null}
+        </dd>
+        <dt className="text-zinc-600">Interval</dt>
+        <dd className="tabular-nums">{meta.intervalDays > 0 ? `${meta.intervalDays}d` : "—"}</dd>
+        <dt className="text-zinc-600">Ease</dt>
+        <dd className="tabular-nums">{meta.ease.toFixed(2)}</dd>
+        <dt className="text-zinc-600">Reps</dt>
+        <dd className="tabular-nums">{reps}</dd>
+        <dt className="text-zinc-600">Lapses</dt>
+        <dd className="tabular-nums">{meta.lapses}</dd>
+        <dt className="text-zinc-600">Again lapse</dt>
+        <dd className="tabular-nums" title="Delay after pressing Again (new cards default to 10m)">
+          {meta.lapseAgainLabel}
+          {meta.hasCustomLapseAgain ? (
+            <span className="ml-1 text-[10px] font-normal text-zinc-500">custom</span>
+          ) : null}
+        </dd>
+        {meta.relearnStep !== null ? (
+          <>
+            <dt className="text-zinc-600">Relearn</dt>
+            <dd className="tabular-nums">step {meta.relearnStep + 1} of 3</dd>
+          </>
+        ) : null}
+        {lastReview ? (
+          <>
+            <dt className="text-zinc-600">Last review</dt>
+            <dd className="text-[11px] text-zinc-400">
+              {new Date(lastReview).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </dd>
+          </>
+        ) : null}
+      </dl>
+      <p className="mt-3 text-[10px] font-medium uppercase tracking-wide text-zinc-600">If graded now</p>
+      <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 p-0">
+        {gradeHints.map(({ grade, label, hint }) => (
+          <li key={grade} className="flex justify-between gap-2 tabular-nums text-zinc-400">
+            <span>{label}</span>
+            <span className="text-zinc-300">{hint}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function CardViewerBody({ card }: { card: CardEntity }) {
   const conceptsById = useAppSelector((s) => s.concepts.byId);
   const faces = useMemo(() => resolveFlashcardFaces(card, { conceptsById }), [card, conceptsById]);
@@ -247,10 +366,37 @@ export function CardBrowserPage() {
   const [openPaths, setOpenPaths] = useState<Set<string>>(() => loadOpenDeckPathsFromStorage());
   /** Mobile only: user tapped “← Decks” to see the sidebar while keeping the URL scope. */
   const [forceDecksPanel, setForceDecksPanel] = useState(false);
+  const [selectedAnchorIds, setSelectedAnchorIds] = useState<Set<string>>(() => new Set());
+  const [assignMinDays, setAssignMinDays] = useState(0);
+  const [assignMaxDays, setAssignMaxDays] = useState(30);
+  const [assigningDue, setAssigningDue] = useState(false);
+  const [assignDueMessage, setAssignDueMessage] = useState<string | null>(null);
+  const [lapseAgainDaysInput, setLapseAgainDaysInput] = useState("3");
+  const [assigningLapseAgain, setAssigningLapseAgain] = useState(false);
+  /** Tick so due-relative labels refresh (same pattern as home deck due counts). */
+  const [dueClock, setDueClock] = useState(0);
 
   useEffect(() => {
     void dispatch(hydrateFromIDB());
   }, [dispatch]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setDueClock((n) => n + 1), 60_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") setDueClock((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+
+  const nowMs = useMemo(() => {
+    void dueClock;
+    // eslint-disable-next-line react-hooks/purity -- intentional wall-clock snapshot
+    return Date.now();
+  }, [dueClock]);
 
   useEffect(() => {
     try {
@@ -262,6 +408,9 @@ export function CardBrowserPage() {
 
   const filterQ = sp.get("filter");
   const deckQ = sp.get("deck");
+  const neverAnsweredOnly = sp.get("neverAnswered") === "1";
+  const textQFromUrl = sp.get("q") ?? "";
+  const [textFilter, setTextFilter] = useState(textQFromUrl);
   const scope = useMemo((): BrowseScope => {
     if (filterQ === "flagged") return { kind: "flagged" };
     const d = deckQ?.trim();
@@ -275,11 +424,59 @@ export function CardBrowserPage() {
     return buildDeckTree(map);
   }, [byId, allIds]);
 
-  const noteList = useMemo(() => {
-    if (scope.kind === "flagged") return buildNoteBrowseList(byId, orderedFlaggedCardIds(byId, allIds));
-    if (scope.kind === "deck") return buildNoteBrowseList(byId, orderedCardIdsInDeckSubtree(byId, allIds, scope.path));
-    return buildNoteBrowseList(byId, []);
+  const scopedCardIds = useMemo(() => {
+    if (scope.kind === "flagged") return orderedFlaggedCardIds(byId, allIds);
+    if (scope.kind === "deck") return orderedCardIdsInDeckSubtree(byId, allIds, scope.path);
+    return [];
   }, [scope, byId, allIds]);
+
+  const noteListUnfiltered = useMemo(
+    () => buildNoteBrowseList(byId, scopedCardIds),
+    [byId, scopedCardIds],
+  );
+
+  const textFilterActive = textFilter.trim().length > 0;
+
+  const noteList = useMemo(() => {
+    let ids = neverAnsweredOnly ? filterNeverAnsweredCardIds(byId, scopedCardIds) : scopedCardIds;
+    if (textFilterActive) ids = filterCardIdsByBrowseText(byId, ids, textFilter);
+    return buildNoteBrowseList(byId, ids);
+  }, [byId, scopedCardIds, neverAnsweredOnly, textFilter, textFilterActive]);
+
+  /** Anchor ids for notes currently shown in the list (after all list filters). */
+  const visibleAnchorIds = useMemo(() => noteList.anchorIds, [noteList.anchorIds]);
+  const visibleAnchorIdSet = useMemo(() => new Set(visibleAnchorIds), [visibleAnchorIds]);
+
+  const hasListFilters = neverAnsweredOnly || textFilterActive;
+
+  const scopeKey =
+    scope.kind === "none"
+      ? "none"
+      : scope.kind === "flagged"
+        ? `flagged${neverAnsweredOnly ? ":never" : ""}${textFilterActive ? `:q:${textFilter.trim()}` : ""}`
+        : `deck:${scope.path}${neverAnsweredOnly ? ":never" : ""}${textFilterActive ? `:q:${textFilter.trim()}` : ""}`;
+
+  useEffect(() => {
+    setTextFilter(textQFromUrl);
+  }, [textQFromUrl]);
+
+  useEffect(() => {
+    setSelectedAnchorIds(new Set());
+    setAssignDueMessage(null);
+  }, [scopeKey]);
+
+  useEffect(() => {
+    setSelectedAnchorIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleAnchorIdSet.has(id)));
+      if (next.size === prev.size) {
+        for (const id of prev) {
+          if (!visibleAnchorIdSet.has(id)) return next;
+        }
+        return prev;
+      }
+      return next;
+    });
+  }, [visibleAnchorIdSet]);
 
   // URL can point at any card id in-scope; we normalize to the note's anchor card id.
   const selectedAnchorId = useMemo(() => {
@@ -336,34 +533,59 @@ export function CardBrowserPage() {
     [router],
   );
 
+  const browseScopeParams = useMemo(
+    () => ({ filterQ, deckQ, neverAnswered: neverAnsweredOnly, textQ: textFilter }),
+    [filterQ, deckQ, neverAnsweredOnly, textFilter],
+  );
+
+  useEffect(() => {
+    if (scope.kind === "none") return;
+    const trimmed = textFilter.trim();
+    const urlTrimmed = textQFromUrl.trim();
+    if (trimmed === urlTrimmed) return;
+    const t = window.setTimeout(() => {
+      const next = new URLSearchParams(sp.toString());
+      if (trimmed) next.set("q", trimmed);
+      else next.delete("q");
+      pushBrowseUrl(next);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [textFilter, textQFromUrl, scope.kind, sp, pushBrowseUrl]);
+
   const selectFlagged = useCallback(() => {
     const next = new URLSearchParams();
-    next.set("filter", "flagged");
+    applyBrowseScopeToParams(next, { ...browseScopeParams, filterQ: "flagged", deckQ: null });
     pushBrowseUrl(next);
     setForceDecksPanel(false);
-  }, [pushBrowseUrl]);
+  }, [pushBrowseUrl, browseScopeParams]);
 
   const selectDeck = useCallback(
     (path: string) => {
       const next = new URLSearchParams();
-      next.set("deck", path);
+      applyBrowseScopeToParams(next, { ...browseScopeParams, filterQ: null, deckQ: path });
       pushBrowseUrl(next);
       setForceDecksPanel(false);
     },
-    [pushBrowseUrl],
+    [pushBrowseUrl, browseScopeParams],
   );
 
   const selectCardId = useCallback(
     (id: string) => {
       const next = new URLSearchParams();
-      if (filterQ === "flagged") next.set("filter", "flagged");
-      else if (deckQ?.trim()) next.set("deck", deckQ.trim());
+      applyBrowseScopeToParams(next, browseScopeParams);
       next.set("card", id);
       pushBrowseUrl(next);
       setForceDecksPanel(false);
     },
-    [filterQ, deckQ, pushBrowseUrl],
+    [browseScopeParams, pushBrowseUrl],
   );
+
+  const toggleNeverAnsweredOnly = useCallback(() => {
+    const next = new URLSearchParams(sp.toString());
+    if (neverAnsweredOnly) next.delete("neverAnswered");
+    else next.set("neverAnswered", "1");
+    pushBrowseUrl(next);
+  }, [neverAnsweredOnly, pushBrowseUrl, sp]);
 
   const isOpen = useCallback(
     (path: string) => openPaths.has(path) || autoExpandPrefixPaths.has(path),
@@ -395,6 +617,115 @@ export function CardBrowserPage() {
     await dispatch(markCardDirtyLocal({ id: selectedCard.id, fields: { flag: next } })).unwrap();
   }, [selectedCard, dispatch]);
 
+  const selectedVisibleCount = useMemo(() => {
+    let n = 0;
+    for (const id of selectedAnchorIds) {
+      if (visibleAnchorIdSet.has(id)) n++;
+    }
+    return n;
+  }, [selectedAnchorIds, visibleAnchorIdSet]);
+
+  const allVisibleSelected =
+    visibleAnchorIds.length > 0 && visibleAnchorIds.every((id) => selectedAnchorIds.has(id));
+
+  const toggleNoteSelected = useCallback((id: string) => {
+    setSelectedAnchorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setAssignDueMessage(null);
+  }, []);
+
+  const selectAllVisible = useCallback(() => {
+    setSelectedAnchorIds(new Set(visibleAnchorIds));
+    setAssignDueMessage(null);
+  }, [visibleAnchorIds]);
+
+  const clearVisibleSelection = useCallback(() => {
+    setSelectedAnchorIds((prev) => {
+      const next = new Set([...prev].filter((id) => !visibleAnchorIdSet.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+    setAssignDueMessage(null);
+  }, [visibleAnchorIdSet]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedAnchorIds(new Set());
+    setAssignDueMessage(null);
+  }, []);
+
+  const toggleSelectAllVisible = useCallback(() => {
+    if (allVisibleSelected) clearVisibleSelection();
+    else selectAllVisible();
+  }, [allVisibleSelected, clearVisibleSelection, selectAllVisible]);
+
+  const assignRandomDueDates = useCallback(async () => {
+    const ids = [...selectedAnchorIds].filter((id) => visibleAnchorIdSet.has(id));
+    if (ids.length === 0) return;
+    const { minDays, maxDays } = clampBrowseDueDayRange(assignMinDays, assignMaxDays);
+    setAssigningDue(true);
+    setAssignDueMessage(null);
+    try {
+      const { updated } = await dispatch(
+        markBulkRandomDueDatesLocal({ anchorIds: ids, minDays, maxDays }),
+      ).unwrap();
+      setAssignDueMessage(
+        `Assigned random due dates (${minDays}–${maxDays} days) to ${updated} note${updated === 1 ? "" : "s"}. Push from home to sync.`,
+      );
+      setSelectedAnchorIds(new Set());
+    } catch (e) {
+      setAssignDueMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssigningDue(false);
+    }
+  }, [selectedAnchorIds, visibleAnchorIdSet, assignMinDays, assignMaxDays, dispatch]);
+
+  const assignLapseAgainDays = useCallback(async () => {
+    const ids = [...selectedAnchorIds].filter((id) => visibleAnchorIdSet.has(id));
+    if (ids.length === 0) return;
+    const parsed = Number(lapseAgainDaysInput);
+    if (!Number.isFinite(parsed)) {
+      setAssignDueMessage("Enter a valid number of days for Again lapse.");
+      return;
+    }
+    const days = clampLapseAgainDays(parsed);
+    setAssigningLapseAgain(true);
+    setAssignDueMessage(null);
+    try {
+      const { updated } = await dispatch(
+        markBulkLapseAgainDaysLocal({ anchorIds: ids, lapseAgainDays: days }),
+      ).unwrap();
+      setAssignDueMessage(
+        `Set Again lapse to ${days} day${days === 1 ? "" : "s"} on ${updated} note${updated === 1 ? "" : "s"} (local; not synced to server).`,
+      );
+    } catch (e) {
+      setAssignDueMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssigningLapseAgain(false);
+    }
+  }, [selectedAnchorIds, visibleAnchorIdSet, lapseAgainDaysInput, dispatch]);
+
+  const resetLapseAgainToDefault = useCallback(async () => {
+    const ids = [...selectedAnchorIds].filter((id) => visibleAnchorIdSet.has(id));
+    if (ids.length === 0) return;
+    setAssigningLapseAgain(true);
+    setAssignDueMessage(null);
+    try {
+      const { updated } = await dispatch(
+        markBulkLapseAgainDaysLocal({ anchorIds: ids, lapseAgainDays: null }),
+      ).unwrap();
+      setAssignDueMessage(
+        `Reset Again lapse to default (10m) on ${updated} note${updated === 1 ? "" : "s"}.`,
+      );
+    } catch (e) {
+      setAssignDueMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssigningLapseAgain(false);
+    }
+  }, [selectedAnchorIds, visibleAnchorIdSet, dispatch]);
+
   const studyHref =
     scope.kind === "deck"
       ? `/study?deck=${encodeURIComponent(scope.path)}`
@@ -410,7 +741,13 @@ export function CardBrowserPage() {
         <span className="lg:hidden"> above</span>.
       </p>
     ) : noteList.anchorIds.length === 0 ? (
-      <p className="px-4 py-8 text-center text-sm text-zinc-500">No notes in this scope.</p>
+      <p className="px-4 py-8 text-center text-sm text-zinc-500">
+        {textFilterActive && noteListUnfiltered.anchorIds.length > 0
+          ? "No notes match your search."
+          : neverAnsweredOnly && noteListUnfiltered.anchorIds.length > 0
+            ? "No never-answered notes in this scope."
+            : "No notes in this scope."}
+      </p>
     ) : (
       <ul
         className="divide-y divide-zinc-800/80 p-0"
@@ -426,25 +763,47 @@ export function CardBrowserPage() {
           const c = byId[id];
           if (!c) return null;
           const active = selectedAnchorId === id;
+          const checked = selectedAnchorIds.has(id);
           return (
             <li key={id} className="list-none">
-              <button
-                type="button"
-                onClick={() => selectCardId(id)}
-                className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition hover:bg-zinc-900/60 ${
-                  active ? "bg-sky-950/25" : ""
+              <div
+                className={`flex items-stretch transition hover:bg-zinc-900/60 ${
+                  active ? "bg-sky-950/25" : checked ? "bg-zinc-900/40" : ""
                 }`}
               >
-                <span className="line-clamp-2 text-sm text-zinc-100">{listPreviewLine(c)}</span>
-                <span className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  <span className="truncate">{c.deck_id?.trim() || "(no deck)"}</span>
-                  {c.flag ? (
-                    <span className="shrink-0 rounded border border-amber-800/60 px-1.5 py-0.5 text-amber-200/90">
-                      Flagged
+                <label className="flex shrink-0 cursor-pointer items-center px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleNoteSelected(id)}
+                    aria-label={`Select note ${listPreviewLine(c)}`}
+                    className="h-4 w-4 rounded border-zinc-600 bg-zinc-950 text-sky-600 focus:ring-sky-600/50"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => selectCardId(id)}
+                  className="flex min-w-0 flex-1 items-stretch text-left"
+                >
+                  <span className="flex min-w-0 flex-1 flex-col gap-1 py-3 pl-0 pr-2">
+                    <span className="line-clamp-2 text-sm text-zinc-100">{listPreviewLine(c)}</span>
+                    <span className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                      <span className="truncate">{c.deck_id?.trim() || "(no deck)"}</span>
+                      {c.flag ? (
+                        <span className="shrink-0 rounded border border-amber-800/60 px-1.5 py-0.5 text-amber-200/90">
+                          Flagged
+                        </span>
+                      ) : null}
+                      {isNeverAnswered(c) ? (
+                        <span className="shrink-0 rounded border border-zinc-600/80 px-1.5 py-0.5 text-zinc-400">
+                          New
+                        </span>
+                      ) : null}
                     </span>
-                  ) : null}
-                </span>
-              </button>
+                  </span>
+                  <BrowseScheduleAside card={c} nowMs={nowMs} />
+                </button>
+              </div>
             </li>
           );
         })}
@@ -496,8 +855,153 @@ export function CardBrowserPage() {
       <div className="border-b border-zinc-800 px-4 py-3">
         <h2 className="truncate text-sm font-semibold text-zinc-200">{scopeTitle}</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          {noteList.anchorIds.length} note{noteList.anchorIds.length === 1 ? "" : "s"}
+          {hasListFilters && noteListUnfiltered.anchorIds.length > noteList.anchorIds.length
+            ? `${noteList.anchorIds.length} of ${noteListUnfiltered.anchorIds.length} notes`
+            : `${noteList.anchorIds.length} note${noteList.anchorIds.length === 1 ? "" : "s"}`}
         </p>
+        {scope.kind !== "none" ? (
+          <div className="mt-2 space-y-2">
+            <label className="block text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+              Search
+              <div className="relative mt-0.5">
+                <input
+                  type="search"
+                  value={textFilter}
+                  onChange={(e) => setTextFilter(e.target.value)}
+                  placeholder="Filter by text…"
+                  aria-label="Filter notes by text"
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 py-1.5 pr-8 pl-2 text-sm text-zinc-100 placeholder:text-zinc-600"
+                />
+                {textFilterActive ? (
+                  <button
+                    type="button"
+                    onClick={() => setTextFilter("")}
+                    aria-label="Clear search"
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400">
+              <input
+                type="checkbox"
+                checked={neverAnsweredOnly}
+                onChange={toggleNeverAnsweredOnly}
+                className="h-3.5 w-3.5 rounded border-zinc-600 bg-zinc-950 text-sky-600 focus:ring-sky-600/50"
+              />
+              Never answered only
+            </label>
+          </div>
+        ) : null}
+        {scope.kind !== "none" && noteList.anchorIds.length > 0 ? (
+          <div className="mt-3 space-y-2 border-t border-zinc-800/80 pt-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-zinc-500">
+                {selectedVisibleCount > 0
+                  ? `${selectedVisibleCount} selected`
+                  : "Select notes to schedule"}
+              </span>
+              <button
+                type="button"
+                onClick={toggleSelectAllVisible}
+                className="text-sky-400 hover:text-sky-300"
+              >
+                {allVisibleSelected
+                  ? "Clear shown"
+                  : hasListFilters
+                    ? "Select all shown"
+                    : "Select all"}
+              </button>
+              {selectedVisibleCount > 0 ? (
+                <button type="button" onClick={clearVisibleSelection} className="text-zinc-400 hover:text-zinc-300">
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            {selectedVisibleCount > 0 ? (
+              <>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex flex-col gap-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+                  Min days
+                  <input
+                    type="number"
+                    min={0}
+                    max={BROWSE_RANDOM_DUE_MAX_DAYS}
+                    value={assignMinDays}
+                    onChange={(e) => {
+                      setAssignMinDays(Number(e.target.value));
+                      setAssignDueMessage(null);
+                    }}
+                    className="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+                  Max days
+                  <input
+                    type="number"
+                    min={0}
+                    max={BROWSE_RANDOM_DUE_MAX_DAYS}
+                    value={assignMaxDays}
+                    onChange={(e) => {
+                      setAssignMaxDays(Number(e.target.value));
+                      setAssignDueMessage(null);
+                    }}
+                    className="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={assigningDue || assigningLapseAgain}
+                  onClick={() => void assignRandomDueDates()}
+                  className="rounded-lg border border-sky-800/80 bg-sky-950/50 px-3 py-1.5 text-xs font-semibold text-sky-200 hover:bg-sky-950/80 disabled:opacity-50"
+                >
+                  {assigningDue ? "Assigning…" : "Assign random due"}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 border-t border-zinc-800/60 pt-2">
+                <label className="flex flex-col gap-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+                  Again lapse (days)
+                  <input
+                    type="number"
+                    min={0}
+                    max={BROWSE_RANDOM_DUE_MAX_DAYS}
+                    value={lapseAgainDaysInput}
+                    onChange={(e) => {
+                      setLapseAgainDaysInput(e.target.value);
+                      setAssignDueMessage(null);
+                    }}
+                    title="When you press Again on a new card, wait this many days instead of 10 minutes"
+                    className="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={assigningLapseAgain || assigningDue}
+                  onClick={() => void assignLapseAgainDays()}
+                  className="rounded-lg border border-violet-900/70 bg-violet-950/40 px-3 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-950/70 disabled:opacity-50"
+                >
+                  {assigningLapseAgain ? "Saving…" : "Set Again lapse"}
+                </button>
+                <button
+                  type="button"
+                  disabled={assigningLapseAgain || assigningDue}
+                  onClick={() => void resetLapseAgainToDefault()}
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-900/60 disabled:opacity-50"
+                >
+                  Default (10m)
+                </button>
+              </div>
+              </>
+            ) : null}
+            {assignDueMessage ? (
+              <p className="text-xs text-zinc-400" role="status">
+                {assignDueMessage}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">{listBody}</div>
     </section>
@@ -542,6 +1046,7 @@ export function CardBrowserPage() {
                 ) : null}
               </div>
             </div>
+            <BrowseSchedulePanel card={selectedCard} nowMs={nowMs} />
             <CardViewerBody card={selectedCard} />
             <div className="mt-6">
               <NoteContentFieldsForm anchorCard={selectedCard} />
@@ -558,7 +1063,9 @@ export function CardBrowserPage() {
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Browse notes</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">Inspect decks and flagged notes; flag changes sync like study.</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Inspect decks and flagged notes; select multiple notes to assign random due dates.
+            </p>
           </div>
           <Link href="/" className="text-sm text-sky-400 hover:text-sky-300">
             ← Home
@@ -603,8 +1110,7 @@ export function CardBrowserPage() {
                   type="button"
                   onClick={() => {
                     const next = new URLSearchParams();
-                    if (filterQ === "flagged") next.set("filter", "flagged");
-                    else if (deckQ?.trim()) next.set("deck", deckQ.trim());
+                    applyBrowseScopeToParams(next, browseScopeParams);
                     pushBrowseUrl(next);
                   }}
                   className="text-sm text-sky-400 hover:text-sky-300"

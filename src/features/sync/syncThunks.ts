@@ -10,6 +10,8 @@ import {
 } from "@/lib/api/sync";
 import type { CardsChangedSinceRequest } from "@/lib/api/types";
 import { deferDueByOneDay, noteVariantCardIds } from "@/lib/cards/crosswordFromCard";
+import { clampLapseAgainDays } from "@/lib/cards/lapseAgain";
+import { randomScheduleFieldsInDayRange } from "@/lib/cards/randomDueInRange";
 import { computeNoteVariantScheduleRealignments } from "@/lib/cards/realignNoteVariantSchedules";
 import { normalizeServerCard } from "@/lib/cards/normalize";
 import { cardUpdatedAtEpochMs } from "@/lib/cards/updatedAt";
@@ -425,6 +427,59 @@ export const markFlashcardReviewDeferSiblingDuesLocal = createAsyncThunk(
  * One-shot repair: for each note with multiple variant rows, copy the lead variant's full schedule
  * onto every sibling so deck vs flashcard due counts are not stuck on stale `more_questions` rows.
  */
+/**
+ * Assign each selected note a random `due_at` between `minDays` and `maxDays` from now (inclusive),
+ * applying the same schedule to every variant row for that note.
+ */
+/** Set or clear per-note custom Again delay (days). `null` restores default ~10 minutes. */
+export const markBulkLapseAgainDaysLocal = createAsyncThunk(
+  "sync/markBulkLapseAgainDaysLocal",
+  async (
+    arg: { anchorIds: string[]; lapseAgainDays: number | null },
+    { dispatch, getState, rejectWithValue },
+  ) => {
+    try {
+      const state = getState() as CardsSlicePick;
+      const fields =
+        arg.lapseAgainDays === null
+          ? { lapse_again_days: undefined }
+          : { lapse_again_days: clampLapseAgainDays(arg.lapseAgainDays) };
+      let updated = 0;
+      for (const anchorId of arg.anchorIds) {
+        if (!state.cards.byId[anchorId]) continue;
+        await dispatch(markScheduleAcrossNoteVariantsLocal({ gradedId: anchorId, fields })).unwrap();
+        updated++;
+      }
+      return { updated };
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
+export const markBulkRandomDueDatesLocal = createAsyncThunk(
+  "sync/markBulkRandomDueDatesLocal",
+  async (
+    arg: { anchorIds: string[]; minDays: number; maxDays: number; nowMs?: number },
+    { dispatch, getState, rejectWithValue },
+  ) => {
+    try {
+      const nowMs = arg.nowMs ?? Date.now();
+      const state = getState() as CardsSlicePick;
+      let updated = 0;
+      for (const anchorId of arg.anchorIds) {
+        if (!state.cards.byId[anchorId]) continue;
+        const fields = randomScheduleFieldsInDayRange(arg.minDays, arg.maxDays, nowMs);
+        await dispatch(markScheduleAcrossNoteVariantsLocal({ gradedId: anchorId, fields })).unwrap();
+        updated++;
+      }
+      return { updated };
+    } catch (e) {
+      return rejectWithValue(e instanceof Error ? e.message : String(e));
+    }
+  },
+);
+
 export const realignNoteVariantSchedulesLocal = createAsyncThunk(
   "sync/realignNoteVariantSchedulesLocal",
   async (_, { dispatch, getState, rejectWithValue }) => {

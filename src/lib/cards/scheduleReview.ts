@@ -1,4 +1,6 @@
 import type { CardEntity } from "@/features/cards/cardsSlice";
+import { clampDueAtIntervalFields } from "@/lib/cards/dueCeiling";
+import { DEFAULT_LAPSE_AGAIN_MINUTES, hasCustomLapseAgainDays } from "@/lib/cards/lapseAgain";
 
 /** Anki-style recall outcome; drives local SM-2–like scheduling. */
 export type ReviewGrade = "again" | "hard" | "good" | "easy";
@@ -9,7 +11,6 @@ const EASE_MAX = 3.0;
 /** ± this fraction of the target interval (deterministic per card + grade + pre-review state). */
 const FUZZ_FRAC = 0.05;
 
-const RELEARN_AGAIN_MINUTES = 10;
 const RELEARN_GOOD_STEP0_MINUTES = 60;
 const RELEARN_GOOD_STEP1_DAYS = 6 / 24; // 6h
 const RELEARN_GRADUATE_DAYS = 1;
@@ -57,12 +58,44 @@ function withClearedRelearnStep(base: ScheduledReviewFields): ScheduledReviewFie
   return { ...base, relearn_step: undefined };
 }
 
+function scheduleAgainAfterLapse(
+  card: CardEntity,
+  grade: ReviewGrade,
+  nowMs: number,
+  lapses: number,
+  ease: number,
+): ScheduledReviewFields {
+  const last_reviewed_at = new Date(nowMs).toISOString();
+  if (hasCustomLapseAgainDays(card)) {
+    const interval_days = fuzzDays(card.lapse_again_days!, card, grade);
+    return {
+      due_at: isoFromNowMs(nowMs, interval_days),
+      interval_days,
+      ease,
+      reps: 0,
+      lapses,
+      last_reviewed_at,
+      relearn_step: 0,
+    };
+  }
+  const m = fuzzMinutes(DEFAULT_LAPSE_AGAIN_MINUTES, card, grade);
+  return {
+    due_at: isoFromNowMinutes(nowMs, m),
+    interval_days: 0,
+    ease,
+    reps: 0,
+    lapses,
+    last_reviewed_at,
+    relearn_step: 0,
+  };
+}
+
 /**
  * Computes new scheduling fields after a review (client-owned; persisted via PATCH /sync).
  * - SM-2–shaped intervals for review cards, with deterministic ±5% fuzz to reduce due-date clumping.
  * - Short relearning ladder after lapses (reps = 0 & lapses > 0): ~10m → ~1h → ~6h → graduate to 1d.
  */
-export function scheduleAfterReview(
+function scheduleAfterReviewUncapped(
   card: CardEntity,
   grade: ReviewGrade,
   nowMs: number,
@@ -81,16 +114,7 @@ export function scheduleAfterReview(
     case "again": {
       lapses += 1;
       ease = Math.max(EASE_MIN, ease - 0.2);
-      const m = fuzzMinutes(RELEARN_AGAIN_MINUTES, card, grade);
-      return {
-        due_at: isoFromNowMinutes(nowMs, m),
-        interval_days: 0,
-        ease,
-        reps: 0,
-        lapses,
-        last_reviewed_at,
-        relearn_step: 0,
-      };
+      return scheduleAgainAfterLapse(card, grade, nowMs, lapses, ease);
     }
     case "hard": {
       ease = Math.max(EASE_MIN, ease - 0.15);
@@ -235,6 +259,14 @@ export function scheduleAfterReview(
       });
     }
   }
+}
+
+export function scheduleAfterReview(
+  card: CardEntity,
+  grade: ReviewGrade,
+  nowMs: number,
+): ScheduledReviewFields {
+  return clampDueAtIntervalFields(scheduleAfterReviewUncapped(card, grade, nowMs), nowMs);
 }
 
 /** Short label for the next interval (for grade buttons). */
