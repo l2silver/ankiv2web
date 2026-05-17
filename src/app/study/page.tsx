@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 
 import { CrosswordGameStudy } from "@/components/CrosswordGameStudy";
 import { JeopardyGameStudy } from "@/components/JeopardyGameStudy";
 import { StudyModePicker } from "@/components/StudyModePicker";
 import { StudySession } from "@/components/StudySession";
+import { isPermanentDeckPath } from "@/lib/permanentDeck/isPermanentDeck";
 
 const STUDY_MODES = ["flashcard", "crossword", "jeopardy"] as const;
 type StudyMode = (typeof STUDY_MODES)[number];
@@ -18,10 +19,19 @@ function isStudyMode(value: string | null): value is StudyMode {
 }
 
 function StudyInner() {
+  const router = useRouter();
   const sp = useSearchParams();
   const deck = sp.get("deck");
   const modeRaw = sp.get("mode");
   const mode = isStudyMode(modeRaw) ? modeRaw : null;
+
+  useEffect(() => {
+    if (!deck || !isPermanentDeckPath(deck)) return;
+    if (mode === "flashcard") return;
+    const q = encodeURIComponent(deck);
+    if (!mode) return;
+    router.replace(`/study?deck=${q}&mode=flashcard`);
+  }, [deck, mode, router]);
 
   return (
     <div className="min-h-full bg-zinc-950 px-6 py-10 text-zinc-100">

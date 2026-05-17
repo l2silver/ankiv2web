@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { textOrPlaceholder } from "@/lib/flashcards/formatting";
+import { flashcardFaceContent, textOrPlaceholder } from "@/lib/flashcards/formatting";
 
 type MainFields = {
   front: string;
@@ -10,7 +10,7 @@ type MainFields = {
 
 /** Front = main question; back = answer, optional context under a divider. */
 export function mainQuestionFront(fields: MainFields, emptyFrontLabel = "No question text"): ReactNode {
-  return textOrPlaceholder(fields.front, emptyFrontLabel);
+  return flashcardFaceContent(fields.front, emptyFrontLabel);
 }
 
 export function mainAnswerWithOptionalContextBack(fields: MainFields): ReactNode {

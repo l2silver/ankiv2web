@@ -12,6 +12,12 @@ import {
   scheduleAfterReview,
   type ReviewGrade,
 } from "@/lib/cards/scheduleReview";
+import { assignPermanentSessionImages } from "@/lib/permanentDeck/assignPermanentImages";
+import { isPermanentDeckCard, isPermanentDeckPath } from "@/lib/permanentDeck/isPermanentDeck";
+import {
+  permanentIntervalHint,
+  schedulePermanentReview,
+} from "@/lib/permanentDeck/schedulePermanentReview";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
@@ -292,13 +298,86 @@ export function StudySession({ deckPath }: Props) {
   const [answeredInSession, setAnsweredInSession] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [isGrading, setIsGrading] = useState(false);
+  const [permanentImagesReady, setPermanentImagesReady] = useState(() => !isPermanentDeckPath(deckPath));
   const gradingLockRef = useRef(false);
+  /** Avoid re-assigning images when Redux updates after `upsertMany` (same study session). */
+  const permanentImagesAssignedForSeedRef = useRef<string | null>(null);
+  const permanentImagesAssignInFlightRef = useRef<string | null>(null);
+
+  /** Due id list only — stable across `front` updates on the same cards. */
+  const permanentDueIdsKey = useMemo(() => {
+    if (!isPermanentDeckPath(deckPath)) return "";
+    void dueClock;
+    const nowMs = Date.now();
+    return dueCardIdsForDeck(byId, allIds, deckPath, nowMs, "flashcard")
+      .slice()
+      .sort()
+      .join(",");
+  }, [deckPath, studyOrderSeed, dueClock, byId, allIds]);
+
+  const permanentDueCardsLoaded = useMemo(() => {
+    if (!permanentDueIdsKey) return true;
+    return permanentDueIdsKey.split(",").every((id) => Boolean(byId[id]));
+  }, [permanentDueIdsKey, byId]);
 
   useEffect(() => {
     setAnsweredInSession(0);
     setRevealed(false);
     setStudyOrderSeed(sessionSeedString());
+    permanentImagesAssignedForSeedRef.current = null;
+    permanentImagesAssignInFlightRef.current = null;
   }, [deckPath]);
+
+  /** Permanent deck: assign a fresh unique image per due card once at session start. */
+  useEffect(() => {
+    if (!isPermanentDeckPath(deckPath)) {
+      setPermanentImagesReady(true);
+      return;
+    }
+
+    if (permanentImagesAssignedForSeedRef.current === studyOrderSeed) {
+      setPermanentImagesReady(true);
+      return;
+    }
+
+    if (permanentImagesAssignInFlightRef.current === studyOrderSeed) {
+      return;
+    }
+
+    const ids = permanentDueIdsKey ? permanentDueIdsKey.split(",") : [];
+    if (ids.length === 0) {
+      setPermanentImagesReady(true);
+      return;
+    }
+
+    if (!permanentDueCardsLoaded) {
+      setPermanentImagesReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    permanentImagesAssignInFlightRef.current = studyOrderSeed;
+    setPermanentImagesReady(false);
+    void assignPermanentSessionImages(dispatch, (id) => byId[id], ids)
+      .then(() => {
+        if (!cancelled) {
+          permanentImagesAssignedForSeedRef.current = studyOrderSeed;
+          setPermanentImagesReady(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPermanentImagesReady(true);
+      })
+      .finally(() => {
+        if (permanentImagesAssignInFlightRef.current === studyOrderSeed) {
+          permanentImagesAssignInFlightRef.current = null;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deckPath, studyOrderSeed, permanentDueIdsKey, permanentDueCardsLoaded, dispatch]);
 
   useEffect(() => {
     if (queue.length === 0) {
@@ -321,6 +400,7 @@ export function StudySession({ deckPath }: Props) {
     return resolveFlashcardFaces(card, { conceptsById });
   }, [card, conceptsById]);
 
+  const noAnswerFace = faces.back === null;
   const showAnswer = useCallback(() => setRevealed(true), []);
 
   const toggleFlag = useCallback(async () => {
@@ -369,7 +449,9 @@ export function StudySession({ deckPath }: Props) {
       setIsGrading(true);
       setRevealed(false);
       const nowMs = Date.now();
-      const fields = scheduleAfterReview(card, grade, nowMs);
+      const fields = isPermanentDeckCard(card)
+        ? schedulePermanentReview(card, grade, nowMs)
+        : scheduleAfterReview(card, grade, nowMs);
       try {
         await dispatch(markFlashcardReviewDeferSiblingDuesLocal({ gradedId: card.id, fields, nowMs })).unwrap();
         setAnsweredInSession((n) => n + 1);
@@ -510,7 +592,7 @@ export function StudySession({ deckPath }: Props) {
     );
   }
 
-  if (!card) {
+  if (!card || (isPermanentDeckPath(deckPath) && !permanentImagesReady)) {
     return (
       <div className="mx-auto max-w-2xl text-sm text-zinc-500">
         <Link href="/" className="text-sky-400 hover:text-sky-300">
@@ -596,7 +678,7 @@ export function StudySession({ deckPath }: Props) {
           {faces.front}
         </div>
 
-        {revealed ? (
+        {revealed && !noAnswerFace ? (
           <>
             <div className="my-8 border-t border-zinc-800" />
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Answer</p>
@@ -609,7 +691,7 @@ export function StudySession({ deckPath }: Props) {
           </>
         ) : null}
 
-        {revealed && currentId ? (
+        {revealed && currentId && !noAnswerFace ? (
           <CustomDueControl
             key={currentId}
             disabled={isGrading}
@@ -618,9 +700,11 @@ export function StudySession({ deckPath }: Props) {
           />
         ) : null}
 
-        <div className="mt-8">
-          <NoteContentFieldsForm anchorCard={card} disabled={isGrading} />
-        </div>
+        {!noAnswerFace ? (
+          <div className="mt-8">
+            <NoteContentFieldsForm anchorCard={card} disabled={isGrading} />
+          </div>
+        ) : null}
 
         <div className="mt-6 flex justify-end sm:mt-8">
           <FlashcardVariantBadge
@@ -641,7 +725,7 @@ export function StudySession({ deckPath }: Props) {
                 onClick={showAnswer}
                 className="w-full rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
               >
-                Show answer
+                {noAnswerFace ? "Continue" : "Show answer"}
               </button>
               <p className="mt-2 text-[11px] text-zinc-600">Tip: press Space or Enter</p>
             </>
@@ -659,7 +743,11 @@ export function StudySession({ deckPath }: Props) {
                   >
                     <span className="whitespace-nowrap">{label}</span>
                     <span className="mt-0.5 whitespace-nowrap text-[10px] font-normal tabular-nums opacity-80">
-                      {hintNowMs ? intervalHintForGrade(card, grade, hintNowMs) : "—"}
+                      {hintNowMs
+                        ? card && isPermanentDeckCard(card)
+                          ? permanentIntervalHint(card, grade)
+                          : intervalHintForGrade(card, grade, hintNowMs)
+                        : "—"}
                     </span>
                   </button>
                 ))}

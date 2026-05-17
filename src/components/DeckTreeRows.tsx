@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { DeckTreeNode } from "@/lib/cards/deckTree";
+import { isPermanentDeckPath } from "@/lib/permanentDeck/isPermanentDeck";
 
 const OPEN_DECKS_STORAGE_KEY = "ankiv2.deckTree.openPaths.v1";
 
@@ -101,7 +102,13 @@ function DeckSubtree({
           <button
             type="button"
             disabled={anyStudyDue(node) === 0}
-            onClick={() => router.push(`/study?deck=${encodeURIComponent(node.path)}`)}
+            onClick={() =>
+              router.push(
+                isPermanentDeckPath(node.path)
+                  ? `/study?deck=${encodeURIComponent(node.path)}&mode=flashcard`
+                  : `/study?deck=${encodeURIComponent(node.path)}`,
+              )
+            }
             title={dueButtonTitle(node)}
             className={
               anyStudyDue(node) > 0

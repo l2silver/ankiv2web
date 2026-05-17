@@ -4,7 +4,8 @@ import type { ConceptEntity } from "@/features/concepts/conceptsSlice";
 import type { FlashcardFaces } from "./types";
 import { withConceptTheoryOnBack } from "@/lib/flashcards/conceptOnBack";
 import { withExtendedOnBack } from "@/lib/flashcards/extendedOnBack";
-import { textOrPlaceholder } from "@/lib/flashcards/formatting";
+import { flashcardFaceContent, textOrPlaceholder } from "@/lib/flashcards/formatting";
+import { isPermanentDeckCard } from "@/lib/permanentDeck/isPermanentDeck";
 import { resolveKnowledgeFlashcardFaces } from "./knowledge/resolveKnowledgeFlashcard";
 import { resolveLanguageFlashcardFaces } from "./language/resolveLanguageFlashcard";
 import { resolveVocabFlashcardFaces } from "./vocab/resolveVocabFlashcard";
@@ -23,8 +24,18 @@ function defaultFaces(card: CardEntity): FlashcardFaces {
   };
 }
 
+function permanentDeckFaces(card: CardEntity): FlashcardFaces {
+  return {
+    front: flashcardFaceContent(card.front?.trim() ?? "", ""),
+    back: null,
+  };
+}
+
 /** Routes by `note_type` / `card_variant`. Language / vocab / knowledge / basic use arrow-style `card_variant` strings; see each folder’s `*VariantNames.ts` and `front_to_back_plus_context.tsx` (etc.). */
 export function resolveFlashcardFaces(card: CardEntity, ctx?: FlashcardResolveContext): FlashcardFaces {
+  if (isPermanentDeckCard(card)) {
+    return permanentDeckFaces(card);
+  }
   const noteType = card.note_type?.trim().toLowerCase() ?? "";
   let faces: FlashcardFaces;
   if (noteType === "vocab") {

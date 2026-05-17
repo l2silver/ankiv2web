@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+
+import { isPermanentDeckPath } from "@/lib/permanentDeck/isPermanentDeck";
 
 type Props = {
   deckPath: string;
@@ -10,6 +13,17 @@ type Props = {
 export function StudyModePicker({ deckPath }: Props) {
   const router = useRouter();
   const q = encodeURIComponent(deckPath);
+  const flashcardOnly = isPermanentDeckPath(deckPath);
+
+  useEffect(() => {
+    if (flashcardOnly) {
+      router.replace(`/study?deck=${q}&mode=flashcard`);
+    }
+  }, [flashcardOnly, q, router]);
+
+  if (flashcardOnly) {
+    return <PermanentDeckRedirecting />;
+  }
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -61,6 +75,14 @@ export function StudyModePicker({ deckPath }: Props) {
           </button>
         </li>
       </ul>
+    </div>
+  );
+}
+
+function PermanentDeckRedirecting() {
+  return (
+    <div className="mx-auto max-w-2xl">
+      <p className="text-sm text-zinc-500">Opening flashcards…</p>
     </div>
   );
 }

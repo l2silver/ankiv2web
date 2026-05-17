@@ -30,6 +30,7 @@ import {
 import { computeNoteVariantScheduleRealignments } from "@/lib/cards/realignNoteVariantSchedules";
 import { DeckTreeRows } from "@/components/DeckTreeRows";
 import { clearStoredCredentials } from "@/lib/settings/apiCredentials";
+import { clearPermanentShownImages } from "@/lib/permanentDeck/imageHistory";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 
 export function HomePage() {
@@ -271,6 +272,19 @@ export function HomePage() {
                 className="rounded-lg border border-zinc-600 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
               >
                 Clear error
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void clearPermanentShownImages().then(() => {
+                    window.alert(
+                      "Cleared permanent-deck image history. The next study session can use any image from the pool again (including ones you have already seen).",
+                    );
+                  });
+                }}
+                className="rounded-lg border border-violet-900/80 bg-violet-950/40 px-4 py-2 text-sm font-medium text-violet-100 hover:bg-violet-950/70"
+              >
+                Reset permanent image history
               </button>
               <button
                 type="button"

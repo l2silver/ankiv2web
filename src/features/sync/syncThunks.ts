@@ -48,6 +48,7 @@ import {
 } from "@/lib/db/cardsDb";
 import { entityToStored, storedToEntity } from "@/lib/db/storedCard";
 import { normalizeServerConcept } from "@/lib/concepts/normalizeServerConcept";
+import { ensurePermanentDeckInIdb } from "@/lib/permanentDeck/ensurePermanentDeck";
 
 const CONTENT_SEQ_META_KEY = "contentSyncSinceSequence";
 const CONCEPT_SEQ_META_KEY = "conceptContentSyncSinceSequence";
@@ -157,6 +158,7 @@ export const hydrateFromIDB = createAsyncThunk(
   "sync/hydrateFromIDB",
   async (_, { dispatch, rejectWithValue }) => {
     try {
+      await ensurePermanentDeckInIdb();
       const rows = await idbGetAllCards();
       const entities = rows.map(storedToEntity);
       dispatch(hydrateCards(entities));
