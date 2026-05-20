@@ -91,7 +91,7 @@ This document describes what the **Next.js 16 (App Router) + React 19** study cl
 |------|-----------|-------------------|
 | Home / deck tree | `tests/web/home.spec.ts` | Pull mock hydrates nested decks; expand/collapse; due link → mode picker; sync panel + Pull; direct flashcard URL |
 | Card browser | `tests/web/browse.spec.ts` | Home → Browse; deck scope + list + viewer; flagged empty state; mobile stepped flow |
-| Study routing | `tests/web/study-routing.spec.ts` | `/study` without `deck`; mode picker → flashcard; reveal + **Good** + flag; keyboard Space/`3`; custom due block after reveal |
+| Study routing | `tests/web/study-routing.spec.ts` | `/study` without `deck`; mode picker → flashcard; reveal + **Good** + flag; keyboard Space/`3`; custom due block after reveal; **Suspend** (no confirm) hides variant locally |
 | Crossword | `tests/web/crossword.spec.ts` | Grid chrome (Across/Down, Blind/Hints); reveal + grade one word; View card dialog |
 
 **Not yet automated** (good follow-ups): full crossword session completion (all words graded), every `note_type` / `card_variant` flash layout, visibility-based push, **Reset app** / **Align variant schedules** confirm flows, and `PATCH /sync` success against a healthy Go test DB.

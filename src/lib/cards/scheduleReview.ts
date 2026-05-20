@@ -1,6 +1,11 @@
 import type { CardEntity } from "@/features/cards/cardsSlice";
 import { clampDueAtIntervalFields } from "@/lib/cards/dueCeiling";
-import { DEFAULT_LAPSE_AGAIN_MINUTES, hasCustomLapseAgainDays } from "@/lib/cards/lapseAgain";
+import {
+  customLapseIntervalDaysForGrade,
+  customLapseMaxEasyDays,
+  DEFAULT_LAPSE_AGAIN_MINUTES,
+  hasCustomLapseAgainDays,
+} from "@/lib/cards/lapseAgain";
 
 /** Anki-style recall outcome; drives local SM-2–like scheduling. */
 export type ReviewGrade = "again" | "hard" | "good" | "easy";
@@ -58,6 +63,23 @@ function withClearedRelearnStep(base: ScheduledReviewFields): ScheduledReviewFie
   return { ...base, relearn_step: undefined };
 }
 
+function brandNewIntervalDays(
+  card: CardEntity,
+  grade: Extract<ReviewGrade, "hard" | "good" | "easy">,
+): number {
+  if (hasCustomLapseAgainDays(card)) {
+    return customLapseIntervalDaysForGrade(customLapseMaxEasyDays(card), grade);
+  }
+  switch (grade) {
+    case "hard":
+      return 0.5;
+    case "good":
+      return 1;
+    case "easy":
+      return 4;
+  }
+}
+
 function scheduleAgainAfterLapse(
   card: CardEntity,
   grade: ReviewGrade,
@@ -66,18 +88,6 @@ function scheduleAgainAfterLapse(
   ease: number,
 ): ScheduledReviewFields {
   const last_reviewed_at = new Date(nowMs).toISOString();
-  if (hasCustomLapseAgainDays(card)) {
-    const interval_days = fuzzDays(card.lapse_again_days!, card, grade);
-    return {
-      due_at: isoFromNowMs(nowMs, interval_days),
-      interval_days,
-      ease,
-      reps: 0,
-      lapses,
-      last_reviewed_at,
-      relearn_step: 0,
-    };
-  }
   const m = fuzzMinutes(DEFAULT_LAPSE_AGAIN_MINUTES, card, grade);
   return {
     due_at: isoFromNowMinutes(nowMs, m),
@@ -157,7 +167,7 @@ function scheduleAfterReviewUncapped(
 
       let interval_days: number;
       if (isBrandNew) {
-        interval_days = fuzzDays(0.5, card, grade);
+        interval_days = fuzzDays(brandNewIntervalDays(card, grade), card, grade);
       } else if (ivl <= 0) {
         interval_days = fuzzDays(1, card, grade);
       } else {
@@ -211,7 +221,7 @@ function scheduleAfterReviewUncapped(
 
       let interval_days: number;
       if (isBrandNew) {
-        interval_days = fuzzDays(1, card, grade);
+        interval_days = fuzzDays(brandNewIntervalDays(card, grade), card, grade);
       } else if (ivl <= 0) {
         interval_days = fuzzDays(1, card, grade);
       } else {
@@ -243,7 +253,7 @@ function scheduleAfterReviewUncapped(
 
       let interval_days: number;
       if (isBrandNew) {
-        interval_days = fuzzDays(4, card, grade);
+        interval_days = fuzzDays(brandNewIntervalDays(card, grade), card, grade);
       } else if (ivl <= 0) {
         interval_days = fuzzDays(2, card, grade);
       } else {

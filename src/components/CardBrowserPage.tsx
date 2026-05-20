@@ -15,7 +15,7 @@ import {
   markBulkRandomDueDatesLocal,
   markCardDirtyLocal,
 } from "@/features/sync/syncThunks";
-import { clampLapseAgainDays } from "@/lib/cards/lapseAgain";
+import { clampLapseAgainDays, LAPSE_AGAIN_PRESET_DAYS, LAPSE_MAX_EASY_DAYS } from "@/lib/cards/lapseAgain";
 import type { CardEntity } from "@/features/cards/cardsSlice";
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 import {
@@ -262,7 +262,7 @@ function BrowseScheduleAside({ card, nowMs }: { card: CardEntity; nowMs: number 
         className="text-[10px] tabular-nums text-zinc-500"
         title={
           meta.hasCustomLapseAgain
-            ? `Again interval if graded now (custom: ${meta.lapseAgainLabel})`
+            ? `Again interval if graded now (Easy max ${meta.lapseAgainLabel})`
             : "Again interval if graded now"
         }
       >
@@ -302,8 +302,8 @@ function BrowseSchedulePanel({ card, nowMs }: { card: CardEntity; nowMs: number 
         <dd className="tabular-nums">{reps}</dd>
         <dt className="text-zinc-600">Lapses</dt>
         <dd className="tabular-nums">{meta.lapses}</dd>
-        <dt className="text-zinc-600">Again lapse</dt>
-        <dd className="tabular-nums" title="Delay after pressing Again (new cards default to 10m)">
+        <dt className="text-zinc-600">Easy max</dt>
+        <dd className="tabular-nums" title="Max Easy interval for brand-new cards; Hard and Good halve from this; Again stays 10m">
           {meta.lapseAgainLabel}
           {meta.hasCustomLapseAgain ? (
             <span className="ml-1 text-[10px] font-normal text-zinc-500">custom</span>
@@ -371,7 +371,7 @@ export function CardBrowserPage() {
   const [assignMaxDays, setAssignMaxDays] = useState(30);
   const [assigningDue, setAssigningDue] = useState(false);
   const [assignDueMessage, setAssignDueMessage] = useState<string | null>(null);
-  const [lapseAgainDaysInput, setLapseAgainDaysInput] = useState("3");
+  const [lapseSliderDays, setLapseSliderDays] = useState(45);
   const [assigningLapseAgain, setAssigningLapseAgain] = useState(false);
   /** Tick so due-relative labels refresh (same pattern as home deck due counts). */
   const [dueClock, setDueClock] = useState(0);
@@ -682,30 +682,37 @@ export function CardBrowserPage() {
     }
   }, [selectedAnchorIds, visibleAnchorIdSet, assignMinDays, assignMaxDays, dispatch]);
 
-  const assignLapseAgainDays = useCallback(async () => {
-    const ids = [...selectedAnchorIds].filter((id) => visibleAnchorIdSet.has(id));
-    if (ids.length === 0) return;
-    const parsed = Number(lapseAgainDaysInput);
-    if (!Number.isFinite(parsed)) {
-      setAssignDueMessage("Enter a valid number of days for Again lapse.");
-      return;
-    }
-    const days = clampLapseAgainDays(parsed);
-    setAssigningLapseAgain(true);
-    setAssignDueMessage(null);
-    try {
-      const { updated } = await dispatch(
-        markBulkLapseAgainDaysLocal({ anchorIds: ids, lapseAgainDays: days }),
-      ).unwrap();
-      setAssignDueMessage(
-        `Set Again lapse to ${days} day${days === 1 ? "" : "s"} on ${updated} note${updated === 1 ? "" : "s"} (local; not synced to server).`,
-      );
-    } catch (e) {
-      setAssignDueMessage(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAssigningLapseAgain(false);
-    }
-  }, [selectedAnchorIds, visibleAnchorIdSet, lapseAgainDaysInput, dispatch]);
+  const assignLapseAgainDaysAt = useCallback(
+    async (rawDays: number) => {
+      const ids = [...selectedAnchorIds].filter((id) => visibleAnchorIdSet.has(id));
+      if (ids.length === 0) return;
+      if (!Number.isFinite(rawDays)) {
+        setAssignDueMessage("Enter a valid number of days for Easy max.");
+        return;
+      }
+      const days = clampLapseAgainDays(rawDays);
+      setAssigningLapseAgain(true);
+      setAssignDueMessage(null);
+      try {
+        const { updated } = await dispatch(
+          markBulkLapseAgainDaysLocal({ anchorIds: ids, lapseAgainDays: days }),
+        ).unwrap();
+        setAssignDueMessage(
+          `Set Easy max to ${days} day${days === 1 ? "" : "s"} on ${updated} note${updated === 1 ? "" : "s"} (local; not synced to server).`,
+        );
+        setLapseSliderDays(days);
+      } catch (e) {
+        setAssignDueMessage(e instanceof Error ? e.message : String(e));
+      } finally {
+        setAssigningLapseAgain(false);
+      }
+    },
+    [selectedAnchorIds, visibleAnchorIdSet, dispatch],
+  );
+
+  const applyLapseSliderToSelection = useCallback(() => {
+    void assignLapseAgainDaysAt(lapseSliderDays);
+  }, [assignLapseAgainDaysAt, lapseSliderDays]);
 
   const resetLapseAgainToDefault = useCallback(async () => {
     const ids = [...selectedAnchorIds].filter((id) => visibleAnchorIdSet.has(id));
@@ -717,7 +724,7 @@ export function CardBrowserPage() {
         markBulkLapseAgainDaysLocal({ anchorIds: ids, lapseAgainDays: null }),
       ).unwrap();
       setAssignDueMessage(
-        `Reset Again lapse to default (10m) on ${updated} note${updated === 1 ? "" : "s"}.`,
+        `Reset Easy max to default on ${updated} note${updated === 1 ? "" : "s"}.`,
       );
     } catch (e) {
       setAssignDueMessage(e instanceof Error ? e.message : String(e));
@@ -960,50 +967,80 @@ export function CardBrowserPage() {
                   {assigningDue ? "Assigning…" : "Assign random due"}
                 </button>
               </div>
-              <div className="flex flex-wrap items-end gap-2 border-t border-zinc-800/60 pt-2">
-                <label className="flex flex-col gap-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
-                  Again lapse (days)
-                  <input
-                    type="number"
-                    min={0}
-                    max={BROWSE_RANDOM_DUE_MAX_DAYS}
-                    value={lapseAgainDaysInput}
-                    onChange={(e) => {
-                      setLapseAgainDaysInput(e.target.value);
-                      setAssignDueMessage(null);
-                    }}
-                    title="When you press Again on a new card, wait this many days instead of 10 minutes"
-                    className="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-100"
-                  />
-                </label>
-                <button
-                  type="button"
-                  disabled={assigningLapseAgain || assigningDue}
-                  onClick={() => void assignLapseAgainDays()}
-                  className="rounded-lg border border-violet-900/70 bg-violet-950/40 px-3 py-1.5 text-xs font-semibold text-violet-200 hover:bg-violet-950/70 disabled:opacity-50"
-                >
-                  {assigningLapseAgain ? "Saving…" : "Set Again lapse"}
-                </button>
-                <button
-                  type="button"
-                  disabled={assigningLapseAgain || assigningDue}
-                  onClick={() => void resetLapseAgainToDefault()}
-                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-900/60 disabled:opacity-50"
-                >
-                  Default (10m)
-                </button>
-              </div>
               </>
-            ) : null}
-            {assignDueMessage ? (
-              <p className="text-xs text-zinc-400" role="status">
-                {assignDueMessage}
-              </p>
             ) : null}
           </div>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{listBody}</div>
+      <div
+        className={`min-h-0 flex-1 overflow-y-auto ${selectedVisibleCount > 0 ? "pb-[5.75rem]" : ""}`}
+      >
+        {listBody}
+      </div>
+      {selectedVisibleCount > 0 ? (
+        <div className="sticky bottom-0 z-10 shrink-0 border-t border-zinc-800/90 bg-zinc-950/95 px-4 py-2.5 backdrop-blur">
+          <div className="flex items-center gap-2.5">
+            <input
+              type="range"
+              min={1}
+              max={LAPSE_MAX_EASY_DAYS}
+              step={1}
+              value={lapseSliderDays}
+              disabled={assigningLapseAgain || assigningDue}
+              aria-label="Easy max days"
+              onChange={(e) => {
+                setLapseSliderDays(Number(e.target.value));
+                setAssignDueMessage(null);
+              }}
+              onPointerUp={applyLapseSliderToSelection}
+              onKeyUp={(e) => {
+                if (e.key === "Enter" || e.key === " ") applyLapseSliderToSelection();
+              }}
+              className="min-w-0 flex-1 accent-violet-500 disabled:opacity-50"
+            />
+            <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-zinc-100">
+              {lapseSliderDays}
+            </span>
+            <button
+              type="button"
+              disabled={assigningLapseAgain || assigningDue}
+              onClick={() => void resetLapseAgainToDefault()}
+              aria-label="Clear max"
+              className="shrink-0 rounded px-1.5 py-0.5 text-lg leading-none text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-1.5">
+            {LAPSE_AGAIN_PRESET_DAYS.slice(0, 4).map((days) => (
+              <button
+                key={days}
+                type="button"
+                disabled={assigningLapseAgain || assigningDue}
+                onClick={() => void assignLapseAgainDaysAt(days)}
+                aria-label={`Set Easy max to ${days} days`}
+                className="min-w-[2.25rem] rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 py-1.5 text-xs font-semibold tabular-nums text-zinc-200 hover:bg-zinc-900 disabled:opacity-50"
+              >
+                {days}
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={assigningLapseAgain || assigningDue}
+              onClick={() => void assignLapseAgainDaysAt(45)}
+              aria-label="Set Easy max to 45 days"
+              className="ml-auto min-w-[2.25rem] rounded-lg bg-black px-2.5 py-1.5 text-xs font-semibold tabular-nums text-white hover:bg-zinc-900 disabled:opacity-50"
+            >
+              45
+            </button>
+          </div>
+          {assignDueMessage ? (
+            <p className="mt-1.5 truncate text-[10px] text-zinc-500" role="status">
+              {assignDueMessage}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 

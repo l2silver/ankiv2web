@@ -7,7 +7,9 @@
     "dev:mock": "NEXT_PUBLIC_USE_SYNC_MOCK=true next dev -p 3011",
     "build": "next build",
     "start": "next start -p 3011",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.11.2",
@@ -25,6 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }

@@ -55,8 +55,8 @@ export type CardEntity = {
   /** Local-only: relearning ladder step after a lapse (not sent to the API). */
   relearn_step?: number;
   /**
-   * Local-only: when set, pressing Again schedules the next due this many days out
-   * instead of the default ~10 minutes (not sent in PATCH /sync).
+   * Local-only: max Easy interval (days) for brand-new cards; Hard = max/4, Good = max/2.
+   * Again stays ~10 minutes (not sent in PATCH /sync).
    */
   lapse_again_days?: number;
   dirty?: boolean;

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { NoteContentFieldsForm } from "@/components/NoteContentFieldsForm";
 import { hydrateFromIDB, markCardDirtyLocal, markFlashcardReviewDeferSiblingDuesLocal } from "@/features/sync/syncThunks";
 import { dueCardIdsForDeck } from "@/lib/cards/deckTree";
+import { suspendStudyCardVariant } from "@/lib/cards/studySuspend";
 import { maxDueDaysFromNow } from "@/lib/cards/dueCeiling";
 import {
   intervalHintForGrade,
@@ -21,6 +22,16 @@ import {
 import { useAppDispatch, useAppSelector } from "@/lib/hooks";
 import { getEffectiveCardVariant } from "@/lib/flashcards/effectiveCardVariant";
 import { resolveFlashcardFaces } from "@/lib/flashcards/resolveFlashcardFaces";
+import {
+  appendQueueHeadToSessionTrailIfAtEnd,
+  canGoBackInSessionTrail,
+  emptySessionTrailState,
+  goBackInSessionTrail,
+  initSessionTrailIfEmpty,
+  sessionTrailDisplayId,
+  truncateSessionTrailOnFinish,
+  type SessionTrailState,
+} from "@/lib/study/studySessionTrail";
 
 type Props = {
   deckPath: string;
@@ -128,31 +139,16 @@ function sessionSeedString(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function formatCustomDuePreview(days: number, nowMs: number): string {
-  if (days <= 0) return "Due now";
-  const t = new Date(nowMs + days * MS_PER_DAY);
-  const dateStr = t.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-  const dayLabel = days === 1 ? "1 day" : `${days} days`;
-  return `${dayLabel} · ${dateStr}`;
-}
-
-function CustomDueControl({
+function CustomDueStickyBar({
   disabled,
-  nowMs,
   onApply,
 }: {
   disabled: boolean;
-  nowMs: number;
   onApply: (daysFromNow: number) => void | Promise<void>;
 }) {
   const [tier, setTier] = useState(CUSTOM_DUE_INITIAL_TIER);
   const [days, setDays] = useState(45);
-  const { min, max, label } = CUSTOM_DUE_TIERS[tier];
+  const { min, max } = CUSTOM_DUE_TIERS[tier];
   const tierMaxIndex = CUSTOM_DUE_TIERS.length - 1;
   const displayDays = Math.min(max, Math.max(min, days));
 
@@ -164,64 +160,53 @@ function CustomDueControl({
     setDays(Math.min(nmax, Math.max(nmin, clamped)));
   };
 
+  const apply = useCallback(() => {
+    void onApply(displayDays);
+  }, [displayDays, onApply]);
+
   return (
-    <div className="mt-8 rounded-xl border border-zinc-800/90 bg-zinc-950/40 px-4 py-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Custom due</p>
-      <p className="mt-1 text-xs text-zinc-600">
-        Slide to choose days from now. Use − / + to switch between 30–60, 10–30, and 0–10 day spans (starts at
-        30–60).
-      </p>
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-        <button
-          type="button"
-          disabled={disabled || tier <= 0}
-          aria-label="Shorter day range (toward 0–10 days)"
-          onClick={() => goTier(tier - 1)}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-zinc-600 text-lg font-medium text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          −
-        </button>
-        <div className="min-w-[6.5rem] flex-1 text-center text-sm tabular-nums text-zinc-300 sm:min-w-[8rem]">
-          {label}
-        </div>
-        <button
-          type="button"
-          disabled={disabled || tier >= tierMaxIndex}
-          aria-label="Longer day range (toward 30–60 days)"
-          onClick={() => goTier(tier + 1)}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-zinc-600 text-lg font-medium text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          +
-        </button>
-      </div>
-      <div className="mt-4">
-        <label htmlFor="custom-due-slider" className="sr-only">
-          Days until due in this range
-        </label>
-        <input
-          id="custom-due-slider"
-          type="range"
-          disabled={disabled}
-          min={min}
-          max={max}
-          step={1}
-          value={displayDays}
-          onChange={(e) => setDays(Number(e.target.value))}
-          className="w-full accent-sky-500 disabled:opacity-50"
-        />
-        <div className="mt-1 flex justify-between text-xs tabular-nums text-zinc-600">
-          <span>{min} d</span>
-          <span>{max} d</span>
-        </div>
-      </div>
-      <p className="mt-2 text-center text-sm text-zinc-400">{formatCustomDuePreview(displayDays, nowMs)}</p>
+    <div className="mb-2.5 flex items-center gap-2">
+      <button
+        type="button"
+        disabled={disabled || tier <= 0}
+        aria-label="Shorter custom due range"
+        onClick={() => goTier(tier - 1)}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-700 text-base font-medium text-zinc-300 hover:bg-zinc-900 disabled:opacity-40"
+      >
+        −
+      </button>
+      <input
+        type="range"
+        disabled={disabled}
+        min={min}
+        max={max}
+        step={1}
+        value={displayDays}
+        aria-label="Custom due days"
+        onChange={(e) => setDays(Number(e.target.value))}
+        onPointerUp={apply}
+        onKeyUp={(e) => {
+          if (e.key === "Enter" || e.key === " ") apply();
+        }}
+        className="min-w-0 flex-1 accent-sky-500 disabled:opacity-50"
+      />
       <button
         type="button"
         disabled={disabled}
-        onClick={() => void onApply(displayDays)}
-        className="mt-4 w-full rounded-lg border border-zinc-600 bg-zinc-900/80 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+        onClick={apply}
+        aria-label={`Apply custom due in ${displayDays} days`}
+        className="w-9 shrink-0 text-right text-sm font-semibold tabular-nums text-zinc-100 hover:text-sky-300 disabled:opacity-50"
       >
-        Apply custom due &amp; next card
+        {displayDays}
+      </button>
+      <button
+        type="button"
+        disabled={disabled || tier >= tierMaxIndex}
+        aria-label="Longer custom due range"
+        onClick={() => goTier(tier + 1)}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-700 text-base font-medium text-zinc-300 hover:bg-zinc-900 disabled:opacity-40"
+      >
+        +
       </button>
     </div>
   );
@@ -296,6 +281,7 @@ export function StudySession({ deckPath }: Props) {
    * the end and incorrectly show "Session complete" while another card is still due.
    */
   const [answeredInSession, setAnsweredInSession] = useState(0);
+  const [sessionTrailState, setSessionTrailState] = useState<SessionTrailState>(emptySessionTrailState);
   const [revealed, setRevealed] = useState(false);
   const [isGrading, setIsGrading] = useState(false);
   const [permanentImagesReady, setPermanentImagesReady] = useState(() => !isPermanentDeckPath(deckPath));
@@ -322,6 +308,7 @@ export function StudySession({ deckPath }: Props) {
 
   useEffect(() => {
     setAnsweredInSession(0);
+    setSessionTrailState(emptySessionTrailState());
     setRevealed(false);
     setStudyOrderSeed(sessionSeedString());
     permanentImagesAssignedForSeedRef.current = null;
@@ -385,13 +372,40 @@ export function StudySession({ deckPath }: Props) {
     }
   }, [queue.length]);
 
-  const currentId = queue.length > 0 ? queue[0] : undefined;
-  const card = currentId ? byId[currentId] : undefined;
+  const queueHeadId = queue.length > 0 ? queue[0] : undefined;
+
+  useEffect(() => {
+    if (!queueHeadId) {
+      setSessionTrailState(emptySessionTrailState());
+      return;
+    }
+    setSessionTrailState((prev) => initSessionTrailIfEmpty(prev, queueHeadId));
+  }, [queueHeadId]);
+
+  /** When at the end of the trail, append the new due head after grading advances the queue. */
+  useEffect(() => {
+    setSessionTrailState((prev) => appendQueueHeadToSessionTrailIfAtEnd(prev, queueHeadId));
+  }, [queueHeadId, sessionTrailState.trailIndex, sessionTrailState.trail.length]);
+
+  const displayId = sessionTrailDisplayId(sessionTrailState, queueHeadId);
+  const card = displayId ? byId[displayId] : undefined;
+  const canGoBack = canGoBackInSessionTrail(sessionTrailState);
+
+  const finishCardAndAdvance = useCallback(() => {
+    setRevealed(false);
+    setSessionTrailState((prev) => truncateSessionTrailOnFinish(prev));
+  }, []);
+
+  const goBack = useCallback(() => {
+    if (gradingLockRef.current || !canGoBackInSessionTrail(sessionTrailState)) return;
+    setSessionTrailState((prev) => goBackInSessionTrail(prev));
+    setRevealed(false);
+  }, [sessionTrailState]);
 
   // Prevent flashing the previous card’s "revealed" UI on the next card.
   useLayoutEffect(() => {
     setRevealed(false);
-  }, [currentId]);
+  }, [displayId]);
 
   const faces = useMemo(() => {
     if (!card) {
@@ -424,30 +438,23 @@ export function StudySession({ deckPath }: Props) {
         fields: { deleted_at: new Date().toISOString() },
       }),
     ).unwrap();
-    setRevealed(false);
+    finishCardAndAdvance();
     setAnsweredInSession((n) => n + 1);
-  }, [card, dispatch]);
+  }, [card, dispatch, finishCardAndAdvance]);
 
   const suspendCard = useCallback(async () => {
-    if (!card || gradingLockRef.current) return;
-    if (
-      !window.confirm(
-        "Suspend this card variant?\n\nOnly this layout will be hidden from study; other variants of the same note stay active. Changes sync when you push or when the tab hides.",
-      )
-    ) {
-      return;
-    }
-    await dispatch(markCardDirtyLocal({ id: card.id, fields: { suspended: true } })).unwrap();
-    setRevealed(false);
+    const did = await suspendStudyCardVariant(card, gradingLockRef.current, dispatch);
+    if (!did) return;
+    finishCardAndAdvance();
     setAnsweredInSession((n) => n + 1);
-  }, [card, dispatch]);
+  }, [card, dispatch, finishCardAndAdvance]);
 
   const submitGrade = useCallback(
     async (grade: ReviewGrade) => {
       if (!card || gradingLockRef.current) return;
       gradingLockRef.current = true;
       setIsGrading(true);
-      setRevealed(false);
+      finishCardAndAdvance();
       const nowMs = Date.now();
       const fields = isPermanentDeckCard(card)
         ? schedulePermanentReview(card, grade, nowMs)
@@ -460,7 +467,7 @@ export function StudySession({ deckPath }: Props) {
         setIsGrading(false);
       }
     },
-    [card, dispatch],
+    [card, dispatch, finishCardAndAdvance],
   );
 
   const submitCustomDue = useCallback(
@@ -468,7 +475,7 @@ export function StudySession({ deckPath }: Props) {
       if (!card || gradingLockRef.current) return;
       gradingLockRef.current = true;
       setIsGrading(true);
-      setRevealed(false);
+      finishCardAndAdvance();
       const nowMs = Date.now();
       const cappedDays = Math.min(daysFromNow, maxDueDaysFromNow(nowMs));
       const due_at = new Date(nowMs + cappedDays * MS_PER_DAY).toISOString();
@@ -492,13 +499,13 @@ export function StudySession({ deckPath }: Props) {
         setIsGrading(false);
       }
     },
-    [card, dispatch],
+    [card, dispatch, finishCardAndAdvance],
   );
 
   const hintNowMs = useMemo(() => {
-    if (!revealed || !currentId) return 0;
+    if (!revealed || !displayId) return 0;
     return Date.now();
-  }, [revealed, currentId]);
+  }, [revealed, displayId]);
 
   useEffect(() => {
     if (!card) return;
@@ -510,7 +517,15 @@ export function StudySession({ deckPath }: Props) {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
           showAnswer();
+        } else if (e.key === "ArrowLeft" && canGoBack) {
+          e.preventDefault();
+          goBack();
         }
+        return;
+      }
+      if (e.key === "ArrowLeft" && canGoBack) {
+        e.preventDefault();
+        goBack();
         return;
       }
       const map: Record<string, ReviewGrade> = {
@@ -527,7 +542,7 @@ export function StudySession({ deckPath }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [card, revealed, isGrading, showAnswer, submitGrade]);
+  }, [card, revealed, isGrading, showAnswer, submitGrade, canGoBack, goBack]);
 
   if (queue.length === 0) {
     return (
@@ -607,9 +622,12 @@ export function StudySession({ deckPath }: Props) {
   const totalThisSession = answeredInSession + queue.length;
   const remaining = queue.length - 1;
 
-  /** Space for fixed study footer (~show answer vs grade buttons) so content can scroll above it. */
-  const studyFooterReserveClass =
-    "pb-[max(13rem,calc(env(safe-area-inset-bottom)+11.5rem))]";
+  /** Space for fixed study footer so content can scroll above it. */
+  const studyFooterReserveClass = revealed
+    ? noAnswerFace
+      ? "pb-[max(11rem,calc(env(safe-area-inset-bottom)+9.5rem))]"
+      : "pb-[max(16rem,calc(env(safe-area-inset-bottom)+14.5rem))]"
+    : "pb-[max(13rem,calc(env(safe-area-inset-bottom)+11.5rem))]";
 
   return (
     <div className={`relative mx-auto max-w-2xl ${studyFooterReserveClass}`}>
@@ -674,7 +692,7 @@ export function StudySession({ deckPath }: Props) {
             </button>
           </div>
         </div>
-        <div key={`front-${currentId ?? ""}`} className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">
+        <div key={`front-${displayId ?? ""}`} className="mt-3 min-h-[5rem] text-lg leading-relaxed text-zinc-100">
           {faces.front}
         </div>
 
@@ -683,21 +701,12 @@ export function StudySession({ deckPath }: Props) {
             <div className="my-8 border-t border-zinc-800" />
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Answer</p>
             <div
-              key={`back-${currentId ?? ""}`}
+              key={`back-${displayId ?? ""}`}
               className="mt-3 min-h-[4rem] text-lg leading-relaxed text-zinc-100"
             >
               {faces.back}
             </div>
           </>
-        ) : null}
-
-        {revealed && currentId && !noAnswerFace ? (
-          <CustomDueControl
-            key={currentId}
-            disabled={isGrading}
-            nowMs={hintNowMs || Date.now()}
-            onApply={submitCustomDue}
-          />
         ) : null}
 
         {!noAnswerFace ? (
@@ -719,20 +728,51 @@ export function StudySession({ deckPath }: Props) {
         <div className="pointer-events-auto mx-auto w-full max-w-2xl border-t border-zinc-700/90 bg-zinc-950/90 px-6 pt-3 shadow-[0_-12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {!revealed ? (
             <>
-              <button
-                type="button"
-                disabled={isGrading}
-                onClick={showAnswer}
-                className="w-full rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
-              >
-                {noAnswerFace ? "Continue" : "Show answer"}
-              </button>
-              <p className="mt-2 text-[11px] text-zinc-600">Tip: press Space or Enter</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={isGrading || !canGoBack}
+                  onClick={goBack}
+                  aria-label="Previous card"
+                  className="shrink-0 rounded-xl border border-zinc-600 bg-zinc-900/80 px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={isGrading}
+                  onClick={showAnswer}
+                  className="min-w-0 flex-1 rounded-xl bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:opacity-50"
+                >
+                  {noAnswerFace ? "Continue" : "Show answer"}
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-zinc-600">
+                Tip: Space or Enter to reveal
+                {canGoBack ? " · ← for previous card" : ""}
+              </p>
             </>
           ) : (
             <>
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">How hard was it?</p>
+              {!noAnswerFace ? (
+                <CustomDueStickyBar
+                  key={displayId}
+                  disabled={isGrading}
+                  onApply={submitCustomDue}
+                />
+              ) : null}
               <div className="flex gap-2">
+                {canGoBack ? (
+                  <button
+                    type="button"
+                    disabled={isGrading}
+                    onClick={goBack}
+                    aria-label="Previous card"
+                    className="shrink-0 rounded-xl border border-zinc-600 bg-zinc-900/80 px-3 py-2 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    ←
+                  </button>
+                ) : null}
                 {GRADE_ROWS.map(({ grade, label, className }) => (
                   <button
                     key={grade}
@@ -752,9 +792,6 @@ export function StudySession({ deckPath }: Props) {
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] text-zinc-600">
-                Keys 1–4 = Again / Hard / Good / Easy
-              </p>
             </>
           )}
         </div>

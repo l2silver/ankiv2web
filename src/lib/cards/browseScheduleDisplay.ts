@@ -74,7 +74,7 @@ export function buildBrowseScheduleSideMeta(card: CardEntity, nowMs: number): Br
   } else if (intervalDays > 0 || reps > 0) {
     stateLine = `${formatIntervalDays(intervalDays)} ivl · ease ${ease.toFixed(2)}`;
   } else if (isNeverAnswered(card) && hasCustomLapseAgainDays(card)) {
-    stateLine = `Again → ${lapseAgainLabel(card)}`;
+    stateLine = `Easy max → ${lapseAgainLabel(card)}`;
   }
 
   return {

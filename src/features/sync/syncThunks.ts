@@ -433,7 +433,7 @@ export const markFlashcardReviewDeferSiblingDuesLocal = createAsyncThunk(
  * Assign each selected note a random `due_at` between `minDays` and `maxDays` from now (inclusive),
  * applying the same schedule to every variant row for that note.
  */
-/** Set or clear per-note custom Again delay (days). `null` restores default ~10 minutes. */
+/** Set or clear per-note max Easy interval (days). `null` clears custom halving. */
 export const markBulkLapseAgainDaysLocal = createAsyncThunk(
   "sync/markBulkLapseAgainDaysLocal",
   async (
